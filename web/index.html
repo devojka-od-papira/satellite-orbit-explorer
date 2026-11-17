@@ -27,7 +27,7 @@
         <h1>Satellite Orbit Explorer</h1>
         <p class="subtitle">
           Four navigation satellites over one day, 10 Nov 2026.
-          Keplerian propagation from CelesTrak GP data.
+          Kepler and SGP4 propagation from CelesTrak GP data.
         </p>
       </header>
 
@@ -35,6 +35,16 @@
         <h2>Satellites</h2>
         <p class="hint">Click a satellite to follow it.</p>
         <ul id="sat-list"></ul>
+      </section>
+
+      <section>
+        <h2>Model</h2>
+        <div class="segmented" role="group" aria-label="Propagation model">
+          <button type="button" id="model-kepler" aria-pressed="false">Kepler</button>
+          <button type="button" id="model-sgp4" aria-pressed="false">SGP4</button>
+          <button type="button" id="model-both" aria-pressed="true">Both</button>
+        </div>
+        <p class="hint" id="model-hint"></p>
       </section>
 
       <section>

@@ -5,7 +5,7 @@ Keplerian orbit propagation and visualization of four real navigation satellites
 
 **[Open the 3D viewer](https://devojka-od-papira.github.io/satellite-orbit-explorer/)**:
 the four satellites on a globe, animated over the day, in the Earth-fixed or
-inertial frame.
+inertial frame, with the Kepler and SGP4 positions side by side.
 
 ![Ground tracks of four satellites over one day](docs/images/ground_tracks.png)
 
@@ -14,7 +14,8 @@ inertial frame.
 - Propagates each orbit over one day at a 5 s step (Kepler's equation, Newton-Raphson)
 - Transforms ECI positions to ECEF and to geodetic coordinates on WGS84
 - Writes an orbit report, plots ground tracks and speed profiles, and exports KML for Google Earth
-- Exports CZML for CesiumJS: animated satellites, ground tracks and inertial orbits
+- Exports CZML for CesiumJS: animated satellites, ground tracks and inertial orbits,
+  for both Kepler and SGP4
 - Compares the two-body Kepler model with SGP4/SDP4 over the same day
 
 ## Validation

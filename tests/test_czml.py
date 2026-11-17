@@ -7,6 +7,7 @@ from orbit_explorer.czml import CZML_STEP, build_czml
 from orbit_explorer.elements import load_elements
 from orbit_explorer.frames import ecef_to_geodetic, eci_to_ecef, gmst_rad
 from orbit_explorer.kepler import SPAN_S, propagate_eci, time_grid_s
+from orbit_explorer.sgp4_compare import compare, propagate_sgp4
 
 SATS = load_elements()
 T = time_grid_s()[::CZML_STEP]
@@ -34,9 +35,9 @@ def test_document_packet_comes_first(czml):
     assert doc["clock"]["interval"] == "2026-11-10T00:00:00Z/2026-11-11T00:00:00Z"
 
 
-def test_three_packets_per_satellite_with_unique_ids(czml):
+def test_five_packets_per_satellite_with_unique_ids(czml):
     ids = [p["id"] for p in czml]
-    assert len(ids) == 1 + 3 * len(SATS)
+    assert len(ids) == 1 + 5 * len(SATS)
     assert len(set(ids)) == len(ids)
 
 
@@ -82,6 +83,33 @@ def test_ground_track_matches_geodetic(czml, sat):
     np.testing.assert_allclose(coords[:, 0], lon, atol=1e-4)
     np.testing.assert_allclose(coords[:, 1], lat, atol=1e-4)
     assert np.all(coords[:, 2] == 0)
+
+
+@pytest.mark.parametrize("sat", SATS, ids=lambda s: s["OBJECT_NAME"])
+def test_sgp4_packets_match_sgp4(czml, sat):
+    r_teme, _ = propagate_sgp4(sat, T)
+    norad = sat["NORAD_CAT_ID"]
+
+    fixed = packet(czml, f"sgp4-{norad}")
+    assert fixed["position"]["referenceFrame"] == "FIXED"
+    np.testing.assert_allclose(
+        samples(fixed)[1], eci_to_ecef(r_teme, gmst_rad(T)), atol=1e-3
+    )
+
+    inertial = packet(czml, f"sgp4orbit-{norad}")
+    assert inertial["position"]["referenceFrame"] == "INERTIAL"
+    np.testing.assert_allclose(samples(inertial)[1], r_teme, atol=1e-3)
+
+
+@pytest.mark.parametrize("sat", SATS, ids=lambda s: s["OBJECT_NAME"])
+def test_kepler_sgp4_distance_matches_comparison(czml, sat):
+    """The gap between the two dots in the viewer is the one in sgp4_compare."""
+    norad = sat["NORAD_CAT_ID"]
+    _, kepler = samples(packet(czml, f"sat-{norad}"))
+    _, sgp4 = samples(packet(czml, f"sgp4-{norad}"))
+    np.testing.assert_allclose(
+        np.linalg.norm(kepler - sgp4, axis=1), compare(sat, T)["total"], atol=2e-3
+    )
 
 
 def test_geostationary_satellite_barely_moves(czml):
