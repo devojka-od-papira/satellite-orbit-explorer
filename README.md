@@ -10,6 +10,7 @@ Keplerian orbit propagation and visualization of four real navigation satellites
 - Propagates each orbit over one day at a 5 s step (Kepler's equation, Newton-Raphson)
 - Transforms ECI positions to ECEF and to geodetic coordinates on WGS84
 - Writes an orbit report, plots ground tracks and speed profiles, and exports KML for Google Earth
+- Exports CZML for CesiumJS: animated satellites, ground tracks and inertial orbits
 
 ## Validation
 All periods, perigee/apogee altitudes and speed ranges match the GNSS Academy
@@ -20,6 +21,7 @@ workshop reference values for the four satellites.
     python -m orbit_explorer.report
     python -m orbit_explorer.plots
     python -m orbit_explorer.kml
+    python -m orbit_explorer.czml
 
 ## Development
     pip install -e ".[dev]"
