@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "orbit-explorer"
 version = "0.1.0"
 requires-python = ">=3.11"
-dependencies = ["numpy", "matplotlib"]
+dependencies = ["numpy", "matplotlib", "pytest", "ruff"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
