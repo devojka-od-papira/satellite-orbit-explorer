@@ -83,14 +83,12 @@ def plot_speeds(path: Path) -> None:
     )
     ax.legend(fontsize=8)
     ax.grid(alpha=0.3)
-    fig, ax = plt.subplots(figsize=(12, 6.27))
-    fig.subplots_adjust(top=0.9, bottom=0.18)
+    fig.savefig(path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
 
 
 def plot_geo_vs_igso(path: Path) -> None:
     """Square figure for sharing: a geostationary dot versus an inclined figure-eight."""
-    t = time_grid_s()
-    theta = gmst_rad(t)
     t = time_grid_s()
     theta = gmst_rad(t)
     fig, ax = plt.subplots(figsize=(10.8, 10.8))
