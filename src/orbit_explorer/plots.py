@@ -94,11 +94,12 @@ def plot_speeds(path: Path) -> None:
 
 
 def plot_geo_vs_igso(path: Path) -> None:
-    """Square figure for sharing: a geostationary dot versus an inclined figure-eight."""
+    """LinkedIn landscape figure (1200x627 px): a geostationary dot versus an
+    inclined figure-eight."""
     t = time_grid_s()
     theta = gmst_rad(t)
-    fig, ax = plt.subplots(figsize=(10.8, 10.8))
-    fig.subplots_adjust(bottom=0.15)
+    fig, ax = plt.subplots(figsize=(12, 6.27))
+    fig.subplots_adjust(top=0.9, bottom=0.18)
     for seg in load_world_map():
         ax.plot(seg[:, 1], seg[:, 0], color="0.65", linewidth=0.6)
 
@@ -119,8 +120,8 @@ def plot_geo_vs_igso(path: Path) -> None:
     ax.annotate(
         "SES-5: geostationary,\nstays at 5° E all day",
         xy=(lon.mean(), lat.mean()),
-        xytext=(-27, -42),
-        fontsize=17,
+        xytext=(-37, -40),
+        fontsize=14,
         arrowprops={"arrowstyle": "->", "lw": 1.5},
     )
 
@@ -129,26 +130,26 @@ def plot_geo_vs_igso(path: Path) -> None:
     ax.annotate(
         "QZS-2: same ~24 h period,\ntilted 39° → figure-eight",
         xy=(lon[top], lat[top]),
-        xytext=(45, 56),
-        fontsize=17,
+        xytext=(45, 50),
+        fontsize=14,
         arrowprops={"arrowstyle": "->", "lw": 1.5},
     )
 
-    ax.set_xlim(-30, 180)
-    ax.set_ylim(-60, 70)
+    ax.set_xlim(-40, 190)
+    ax.set_ylim(-50, 65)
     ax.set_aspect("equal")
-    ax.set_title("Same orbital period, different inclination", fontsize=22, pad=16)
-    ax.set_xlabel("Longitude [deg]", fontsize=14)
-    ax.set_ylabel("Latitude [deg]", fontsize=14)
-    ax.tick_params(labelsize=12)
+    ax.set_title("Same orbital period, different inclination", fontsize=18, pad=12)
+    ax.set_xlabel("Longitude [deg]", fontsize=12)
+    ax.set_ylabel("Latitude [deg]", fontsize=12)
+    ax.tick_params(labelsize=10)
     ax.grid(alpha=0.3)
     fig.text(
         0.5,
-        0.03,
+        0.04,
         "24 h propagated from CelesTrak data, 10 Nov 2026 · "
         "github.com/devojka-od-papira/satellite-orbit-explorer",
         ha="center",
-        fontsize=11,
+        fontsize=9,
         color="0.4",
     )
     fig.savefig(path, dpi=100)
