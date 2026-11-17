@@ -12,6 +12,16 @@ const HINTS = {
     "GEO and IGSO orbits are the same size, only tilted differently.",
 };
 
+const MODEL_HINTS = {
+  kepler: "Two-body Kepler propagation: solid orbits, filled dots.",
+  sgp4:
+    "SGP4/SDP4 from the same GP elements: dashed orbits, rings. It adds Earth's " +
+    "oblateness, drag and lunar and solar gravity.",
+  both:
+    "Filled dot and solid orbit: Kepler. Ring and dashed orbit: SGP4. Δ is the " +
+    "distance between them. Follow PULSAR-0 to see LEO drift apart.",
+};
+
 const WHOLE_EARTH_HEIGHT_M = 9e7; // far enough to see the GEO ring
 const LIVE_UPDATE_MS = 250;
 
@@ -35,6 +45,12 @@ const ui = {
   fixed: document.getElementById("frame-fixed"),
   inertial: document.getElementById("frame-inertial"),
   hint: document.getElementById("frame-hint"),
+  models: {
+    kepler: document.getElementById("model-kepler"),
+    sgp4: document.getElementById("model-sgp4"),
+    both: document.getElementById("model-both"),
+  },
+  modelHint: document.getElementById("model-hint"),
   tracks: document.getElementById("show-tracks"),
   orbits: document.getElementById("show-orbits"),
   freeCamera: document.getElementById("free-camera"),
@@ -42,8 +58,9 @@ const ui = {
 };
 
 let frame = "fixed";
+let model = "both";
 let inertialReset = false; // next inertial camera update jumps to the whole-Earth view
-const satellites = []; // { entity, track, orbit, button, live }
+const satellites = []; // { entity, track, orbit, sgp4, sgp4orbit, button, live }
 
 // ---------- Camera in the inertial frame ----------
 
@@ -118,9 +135,40 @@ function viewFromBehind(position) {
 }
 
 function follow(sat) {
+  // Cesium cannot track a hidden entity, so follow the SGP4 ring in SGP4 mode.
+  const target = model === "sgp4" ? sat.sgp4 : sat.entity;
   setFrame("fixed");
-  viewer.selectedEntity = sat.entity;
-  viewer.trackedEntity = sat.entity;
+  viewer.selectedEntity = target;
+  viewer.trackedEntity = target;
+}
+
+// ---------- Layers ----------
+
+function applyVisibility() {
+  const kepler = model !== "sgp4";
+  const sgp4 = model !== "kepler";
+  for (const s of satellites) {
+    s.entity.show = kepler;
+    s.orbit.show = kepler && ui.orbits.checked;
+    s.track.show = kepler && ui.tracks.checked; // ground tracks are Kepler only
+    s.sgp4.show = sgp4;
+    s.sgp4orbit.show = sgp4 && ui.orbits.checked;
+  }
+  ui.tracks.disabled = !kepler;
+}
+
+function setModel(next) {
+  model = next;
+  for (const [name, button] of Object.entries(ui.models)) {
+    button.setAttribute("aria-pressed", String(name === model));
+  }
+  ui.modelHint.textContent = MODEL_HINTS[model];
+  // Keep following the same satellite if its tracked marker was just hidden.
+  const tracked = satellites.find(
+    (s) => viewer.trackedEntity === s.entity || viewer.trackedEntity === s.sgp4,
+  );
+  applyVisibility();
+  if (tracked && !viewer.trackedEntity.show) follow(tracked);
 }
 
 function addSatellite(ds, entity, start) {
@@ -128,6 +176,8 @@ function addSatellite(ds, entity, start) {
   const color = entity.point.color.getValue(start).toCssColorString();
 
   entity.viewFrom = viewFromBehind(entity.position.getValue(start));
+  const sgp4 = ds.entities.getById(`sgp4-${norad}`);
+  sgp4.viewFrom = viewFromBehind(sgp4.position.getValue(start));
 
   const button = document.createElement("button");
   button.type = "button";
@@ -148,6 +198,8 @@ function addSatellite(ds, entity, start) {
     entity,
     track: ds.entities.getById(`track-${norad}`),
     orbit: ds.entities.getById(`orbit-${norad}`),
+    sgp4,
+    sgp4orbit: ds.entities.getById(`sgp4orbit-${norad}`),
     button,
     live: button.querySelector(".sat-live"),
   };
@@ -160,8 +212,10 @@ function addSatellite(ds, entity, start) {
 const scratch = {
   before: new Cesium.JulianDate(),
   after: new Cesium.JulianDate(),
-  a: new Cesium.Cartesian3(),
+  a: new Cesium.Cartesian3(), // used by inertialSpeedKmS
   b: new Cesium.Cartesian3(),
+  kepler: new Cesium.Cartesian3(), // used by updateLive
+  sgp4: new Cesium.Cartesian3(),
 };
 
 function inertialSpeedKmS(sat, time) {
@@ -188,12 +242,16 @@ function updateLive(clock) {
   if (now - lastLiveUpdate < LIVE_UPDATE_MS) return;
   lastLiveUpdate = now;
   for (const sat of satellites) {
-    const pos = sat.entity.position.getValue(clock.currentTime);
+    const pos = sat.entity.position.getValue(clock.currentTime, scratch.kepler);
+    const pos4 = sat.sgp4.position.getValue(clock.currentTime, scratch.sgp4);
     const v = inertialSpeedKmS(sat, clock.currentTime);
-    if (!pos || v === undefined) continue;
+    if (!pos || !pos4 || v === undefined) continue;
+    // Altitude and speed of the Kepler satellite; Δ is the Kepler-SGP4 gap.
     const altKm = Cesium.Cartographic.fromCartesian(pos).height / 1000;
+    const gapKm = Cesium.Cartesian3.distance(pos, pos4) / 1000;
     sat.live.textContent =
-      `${Math.round(altKm).toLocaleString("en-US")} km · ${v.toFixed(3)} km/s`;
+      `${Math.round(altKm).toLocaleString("en-US")} km · ${v.toFixed(3)} km/s` +
+      ` · Δ ${Math.round(gapKm)} km`;
   }
 }
 
@@ -202,17 +260,17 @@ function updateLive(clock) {
 ui.fixed.addEventListener("click", () => setFrame("fixed"));
 ui.inertial.addEventListener("click", () => setFrame("inertial"));
 ui.freeCamera.addEventListener("click", showWholeEarth);
-ui.tracks.addEventListener("change", () => {
-  for (const s of satellites) s.track.show = ui.tracks.checked;
-});
-ui.orbits.addEventListener("change", () => {
-  for (const s of satellites) s.orbit.show = ui.orbits.checked;
-});
+ui.tracks.addEventListener("change", applyVisibility);
+ui.orbits.addEventListener("change", applyVisibility);
+for (const [name, button] of Object.entries(ui.models)) {
+  button.addEventListener("click", () => setModel(name));
+}
 
 viewer.trackedEntityChanged.addEventListener((entity) => {
   if (entity && frame === "inertial") setFrame("fixed");
   for (const s of satellites) {
-    s.button.setAttribute("aria-pressed", String(s.entity === entity));
+    const pressed = entity !== undefined && (s.entity === entity || s.sgp4 === entity);
+    s.button.setAttribute("aria-pressed", String(pressed));
   }
 });
 
@@ -227,6 +285,7 @@ async function main() {
     for (const entity of ds.entities.values) {
       if (entity.id.startsWith("sat-")) addSatellite(ds, entity, start);
     }
+    setModel(model);
     viewer.clock.onTick.addEventListener(updateLive);
     updateLive(viewer.clock);
     ui.loading.hidden = true;

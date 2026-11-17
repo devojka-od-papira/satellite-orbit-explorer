@@ -1,11 +1,16 @@
 """CZML export for CesiumJS: animated satellites, ground tracks and inertial orbits.
 
-Each satellite gets three packets:
-- sat-<id>:   the moving satellite. Positions are Earth-fixed (ECEF) from our own
-              frames.py, so the web viewer shows exactly the tracks in the plots.
-- track-<id>: the 24 h ground track, drawn on the globe surface.
-- orbit-<id>: the orbit in the inertial frame (ECI), drawn as a path one period
-              long, so the orbit's shape in space is visible.
+Each satellite gets five packets:
+- sat-<id>:       the moving satellite (Kepler). Positions are Earth-fixed (ECEF)
+                  from our own frames.py, so the web viewer shows exactly the
+                  tracks in the plots.
+- track-<id>:     the 24 h ground track, drawn on the globe surface.
+- orbit-<id>:     the orbit in the inertial frame (ECI), drawn as a path one
+                  period long, so the orbit's shape in space is visible.
+- sgp4-<id>:      the same satellite propagated with SGP4, as a hollow ring.
+                  TEME positions go through the same GMST rotation as Kepler,
+                  so the distance on screen is the one in sgp4_compare.
+- sgp4orbit-<id>: the SGP4 orbit in the inertial frame, dashed.
 """
 
 import json
@@ -23,6 +28,7 @@ from orbit_explorer.elements import (
 )
 from orbit_explorer.frames import ecef_to_geodetic, eci_to_ecef, gmst_rad
 from orbit_explorer.kepler import SPAN_S, START, propagate_eci, time_grid_s
+from orbit_explorer.sgp4_compare import propagate_sgp4
 
 OUTPUT_PATH = Path("outputs/orbits.czml")
 CZML_STEP = 12  # keep every 12th epoch (60 s), plenty for Lagrange interpolation
@@ -93,9 +99,11 @@ def satellite_packets(sat: dict, rgb: tuple[int, int, int]) -> list[dict]:
     period_s = period_hours(mean_motion_rad_s(sat["MEAN_MOTION"])) * 3600
 
     t = time_grid_s()[::CZML_STEP]
+    theta = gmst_rad(t)
     pos_eci, speed = propagate_eci(sat, t)
-    pos_ecef = eci_to_ecef(pos_eci, gmst_rad(t))
+    pos_ecef = eci_to_ecef(pos_eci, theta)
     lat, lon, _ = ecef_to_geodetic(pos_ecef)
+    pos_sgp4, _ = propagate_sgp4(sat, t)
 
     def position(frame: str, pos_km: np.ndarray) -> dict:
         return {
@@ -152,6 +160,35 @@ def satellite_packets(sat: dict, rgb: tuple[int, int, int]) -> list[dict]:
                 "width": 1.5,
                 "resolution": 120,
                 "material": solid,
+            },
+        },
+        {
+            "id": f"sgp4-{norad}",
+            "name": f"{name} (SGP4)",
+            "availability": INTERVAL,
+            "description": "<p>Position from SGP4/SDP4, propagated from the same "
+            "GP elements. The filled dot is the two-body Kepler position.</p>",
+            "position": position("FIXED", eci_to_ecef(pos_sgp4, theta)),
+            "point": {
+                "pixelSize": 9,
+                "color": {"rgba": [0, 0, 0, 0]},
+                "outlineColor": {"rgba": rgba(rgb)},
+                "outlineWidth": 2,
+            },
+        },
+        {
+            "id": f"sgp4orbit-{norad}",
+            "name": f"{name} orbit (SGP4, inertial)",
+            "availability": INTERVAL,
+            "position": position("INERTIAL", pos_sgp4),
+            "path": {
+                "leadTime": period_s / 2,
+                "trailTime": period_s / 2,
+                "width": 1.5,
+                "resolution": 120,
+                "material": {
+                    "polylineDash": {"color": {"rgba": rgba(rgb)}, "dashLength": 12}
+                },
             },
         },
     ]
