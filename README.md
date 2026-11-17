@@ -17,6 +17,7 @@ inertial frame, with the Kepler and SGP4 positions side by side.
 - Exports CZML for CesiumJS: animated satellites, ground tracks and inertial orbits,
   for both Kepler and SGP4
 - Compares the two-body Kepler model with SGP4/SDP4 over the same day
+- Computes look angles and passes from a ground station, with a sky plot
 
 ## Data
 `data/inputs/orbital_elements.json` holds the GP records and
@@ -54,6 +55,23 @@ for high orbits, lunar and solar gravity. Comparing positions over the day
 
 ![Kepler minus SGP4 position difference over the day](docs/images/sgp4_differences.png)
 
+## Visibility from a ground station
+`orbit_explorer.visibility` turns SGP4 positions into azimuth, elevation and
+range for a station (Belgrade by default) and lists the passes above a 10°
+elevation mask, with how far the Kepler model shifts each rise and set. From
+Belgrade on 2026-11-17:
+
+- **SES-5** sits still at 36° elevation, azimuth 201° (south, a little west),
+  all day.
+- **PULSAR-0** makes 4 passes above 10°, each 3–7 minutes long. Kepler gets
+  rise and set wrong by up to about 40 s, growing over the day like its
+  in-track error.
+- **GALILEO 29** makes two long passes of about 2.5 and 1.7 hours.
+- **QZS-2** never rises more than 1° above the horizon: QZSS is a regional
+  system for Asia-Oceania (from Tokyo it climbs above 70°).
+
+![Sky plot from Belgrade](docs/images/visibility_skyplot.png)
+
 ## Run it
     pip install -e .
     python -m orbit_explorer.report
@@ -61,6 +79,7 @@ for high orbits, lunar and solar gravity. Comparing positions over the day
     python -m orbit_explorer.kml
     python -m orbit_explorer.czml
     python -m orbit_explorer.sgp4_compare
+    python -m orbit_explorer.visibility    # --name, --lat, --lon, --height for another station
 
 ## 3D viewer
 A static CesiumJS page in `web/` that loads `orbits.czml`. GitHub Actions
