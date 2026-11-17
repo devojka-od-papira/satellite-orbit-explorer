@@ -37,7 +37,8 @@ jobs:
           python -m orbit_explorer.plots
           python -m orbit_explorer.kml
           python -m orbit_explorer.czml
-          for f in orbit_report.txt ground_tracks.png speeds.png geo_vs_igso.png orbits.kml orbits.czml; do
+          python -m orbit_explorer.sgp4_compare
+          for f in orbit_report.txt ground_tracks.png speeds.png geo_vs_igso.png orbits.kml orbits.czml sgp4_comparison.txt sgp4_differences.png; do
             test -s "outputs/$f" || { echo "Missing or empty: outputs/$f"; exit 1; }
           done
       - uses: actions/upload-artifact@v4

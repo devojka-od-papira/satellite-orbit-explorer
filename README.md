@@ -15,10 +15,27 @@ inertial frame.
 - Transforms ECI positions to ECEF and to geodetic coordinates on WGS84
 - Writes an orbit report, plots ground tracks and speed profiles, and exports KML for Google Earth
 - Exports CZML for CesiumJS: animated satellites, ground tracks and inertial orbits
+- Compares the two-body Kepler model with SGP4/SDP4 over the same day
 
 ## Validation
 All periods, perigee/apogee altitudes and speed ranges match the GNSS Academy
 workshop reference values for the four satellites.
+
+## Kepler vs SGP4
+GP elements are meant for SGP4, which adds Earth's oblateness (J2–J4), drag and,
+for high orbits, lunar and solar gravity. Comparing positions over the day shows
+what the two-body model leaves out:
+
+- At each satellite's GP epoch the two models differ by 13–33 km. GP elements
+  are SGP4 *mean* elements, not osculating Keplerian ones.
+- **LEO (PULSAR-0)** drifts apart fastest: about 360 km by the end of the day,
+  mostly in-track, plus a growing cross-track swing from the J2 nodal drift of
+  its sun-synchronous orbit.
+- **MEO and GEO** stay within 30–45 km all day.
+- **QZS-2** is about 200 km off already at 00h because its GP epoch is 23 days
+  before the window.
+
+![Kepler minus SGP4 position difference over the day](docs/images/sgp4_differences.png)
 
 ## Run it
     pip install -e .
@@ -26,6 +43,7 @@ workshop reference values for the four satellites.
     python -m orbit_explorer.plots
     python -m orbit_explorer.kml
     python -m orbit_explorer.czml
+    python -m orbit_explorer.sgp4_compare
 
 ## 3D viewer
 A static CesiumJS page in `web/` that loads `orbits.czml`. GitHub Actions
@@ -41,5 +59,4 @@ locally:
     pre-commit install
     pytest
 
-Built during GNSS Academy's Space Career Week 2026. Work in progress: an SGP4
-comparison is next.
+Built during GNSS Academy's Space Career Week 2026.
