@@ -282,6 +282,11 @@ async function main() {
     const ds = await Cesium.CzmlDataSource.load("orbits.czml");
     await viewer.dataSources.add(ds); // the viewer adopts the CZML clock
     const start = ds.clock.startTime;
+    const day = Cesium.JulianDate.toDate(start);
+    document.getElementById("window-date").textContent = `, ${day.toLocaleDateString(
+      "en-GB",
+      { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" },
+    )}`;
     for (const entity of ds.entities.values) {
       if (entity.id.startsWith("sat-")) addSatellite(ds, entity, start);
     }

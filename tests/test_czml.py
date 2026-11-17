@@ -1,4 +1,5 @@
 import json
+from datetime import timedelta
 
 import numpy as np
 import pytest
@@ -6,7 +7,7 @@ import pytest
 from orbit_explorer.czml import CZML_STEP, build_czml
 from orbit_explorer.elements import load_elements
 from orbit_explorer.frames import ecef_to_geodetic, eci_to_ecef, gmst_rad
-from orbit_explorer.kepler import SPAN_S, propagate_eci, time_grid_s
+from orbit_explorer.kepler import SPAN_S, START, propagate_eci, time_grid_s
 from orbit_explorer.sgp4_compare import compare, propagate_sgp4
 
 SATS = load_elements()
@@ -32,7 +33,10 @@ def test_document_packet_comes_first(czml):
     doc = czml[0]
     assert doc["id"] == "document"
     assert doc["version"] == "1.0"
-    assert doc["clock"]["interval"] == "2026-11-10T00:00:00Z/2026-11-11T00:00:00Z"
+    end = START + timedelta(seconds=SPAN_S)
+    assert doc["clock"]["interval"] == (
+        f"{START:%Y-%m-%dT%H:%M:%SZ}/{end:%Y-%m-%dT%H:%M:%SZ}"
+    )
 
 
 def test_five_packets_per_satellite_with_unique_ids(czml):
