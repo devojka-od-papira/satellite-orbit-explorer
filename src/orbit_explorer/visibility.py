@@ -215,7 +215,8 @@ def plot_elevation(path: Path, station: Station = BELGRADE) -> None:
         ylabel="Elevation [deg]",
         title=f"Elevation seen from {station.name}",
     )
-    ax.legend(fontsize=8, loc="lower right")
+    # Outside the axes: the curves fill the whole plot area.
+    ax.legend(fontsize=8, loc="upper left", bbox_to_anchor=(1.01, 1))
     ax.grid(alpha=0.3)
     fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
