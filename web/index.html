@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Satellite Orbit Explorer</title>
+    <meta
+      name="description"
+      content="Four real navigation satellites (LEO, MEO, GEO, IGSO) on a 3D globe, propagated with Kepler's equation from CelesTrak data."
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/cesium@1.124.0/Build/Cesium/Widgets/widgets.css"
+    />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='7' fill='%231f77b4'/%3E%3Cellipse cx='16' cy='16' rx='14' ry='6' fill='none' stroke='%23d62728' stroke-width='2' transform='rotate(-30 16 16)'/%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/cesium@1.124.0/Build/Cesium/Cesium.js"></script>
+  </head>
+  <body>
+    <div id="globe"></div>
+
+    <aside id="panel" aria-label="Satellites and view options">
+      <header>
+        <h1>Satellite Orbit Explorer</h1>
+        <p class="subtitle">
+          Four navigation satellites over one day, 10 Nov 2026.
+          Keplerian propagation from CelesTrak GP data.
+        </p>
+      </header>
+
+      <section>
+        <h2>Satellites</h2>
+        <p class="hint">Click a satellite to follow it.</p>
+        <ul id="sat-list"></ul>
+      </section>
+
+      <section>
+        <h2>View</h2>
+        <div class="segmented" role="group" aria-label="Reference frame">
+          <button type="button" id="frame-fixed" aria-pressed="true">Earth-fixed</button>
+          <button type="button" id="frame-inertial" aria-pressed="false">Inertial</button>
+        </div>
+        <p class="hint" id="frame-hint">
+          The camera turns with the Earth. Ground tracks show where each satellite
+          passes overhead.
+        </p>
+        <label class="check"><input type="checkbox" id="show-tracks" checked /> Ground tracks</label>
+        <label class="check"><input type="checkbox" id="show-orbits" checked /> Orbits in space</label>
+        <button type="button" id="free-camera" class="link-button">Show the whole Earth</button>
+      </section>
+
+      <footer>
+        Data: CelesTrak GP · Imagery: Natural Earth II ·
+        <a href="https://github.com/devojka-od-papira/satellite-orbit-explorer">Source on GitHub</a>
+      </footer>
+    </aside>
+
+    <div id="loading" role="status">Loading orbits…</div>
+
+    <script src="main.js"></script>
+  </body>
+</html>
