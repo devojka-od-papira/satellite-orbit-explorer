@@ -18,23 +18,39 @@ inertial frame, with the Kepler and SGP4 positions side by side.
   for both Kepler and SGP4
 - Compares the two-body Kepler model with SGP4/SDP4 over the same day
 
+## Data
+`data/inputs/orbital_elements.json` holds the GP records and
+`data/inputs/data_manifest.json` records where and when they were downloaded.
+The propagation window starts at midnight UTC of the download day. To refresh
+from CelesTrak:
+
+    python -m orbit_explorer.fetch
+
+This rewrites both files for the same four satellites, but only if every
+download succeeds. It warns when an epoch is more than 3 days from the window
+start. CelesTrak asks for no more than one download of the same data every two
+hours.
+
 ## Validation
-All periods, perigee/apogee altitudes and speed ranges match the GNSS Academy
-workshop reference values for the four satellites.
+All periods, perigee/apogee altitudes and speed ranges matched the GNSS Academy
+workshop reference values for the four satellites. That dataset (downloaded
+2026-11-10) is kept in `tests/data/`, and the period test runs against it,
+because fresh elements change: QZS-2's period moves after station-keeping.
 
 ## Kepler vs SGP4
 GP elements are meant for SGP4, which adds Earth's oblateness (J2–J4), drag and,
-for high orbits, lunar and solar gravity. Comparing positions over the day shows
-what the two-body model leaves out:
+for high orbits, lunar and solar gravity. Comparing positions over the day
+(GP data of 2026-11-17) shows what the two-body model leaves out:
 
-- At each satellite's GP epoch the two models differ by 13–33 km. GP elements
+- At each satellite's GP epoch the two models differ by 8–32 km. GP elements
   are SGP4 *mean* elements, not osculating Keplerian ones.
-- **LEO (PULSAR-0)** drifts apart fastest: about 360 km by the end of the day,
+- **LEO (PULSAR-0)** drifts apart fastest: about 340 km by the end of the day,
   mostly in-track, plus a growing cross-track swing from the J2 nodal drift of
   its sun-synchronous orbit.
-- **MEO and GEO** stay within 30–45 km all day.
-- **QZS-2** is about 200 km off already at 00h because its GP epoch is 23 days
-  before the window.
+- **MEO, GEO and IGSO** stay within about 30–55 km all day.
+- Element age matters as much as the model: with the earlier QZS-2 record,
+  23 days old, the difference was about 200 km from the start of the day. With
+  a fresh record it stays below 55 km.
 
 ![Kepler minus SGP4 position difference over the day](docs/images/sgp4_differences.png)
 
