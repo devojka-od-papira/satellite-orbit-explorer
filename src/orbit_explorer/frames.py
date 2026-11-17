@@ -37,9 +37,23 @@ def ecef_to_geodetic(pos_ecef: np.ndarray, iterations: int = 10):
     lat = np.arctan2(z, p * (1 - WGS84_E2))  # initial guess
     for _ in range(iterations):
         N = WGS84_A_KM / np.sqrt(1 - WGS84_E2 * np.sin(lat) ** 2)
-        h = p / np.cos(lat) - N
+        h = p * np.cos(lat) + z * np.sin(lat) - WGS84_A_KM**2 / N
         lat = np.arctan2(z, p * (1 - WGS84_E2 * N / (N + h)))
     return np.degrees(lat), np.degrees(lon), h
+
+
+def geodetic_to_ecef(lat_deg, lon_deg, h_km) -> np.ndarray:
+    """ECEF [km] from geodetic latitude/longitude [deg] and height [km] on WGS84."""
+    lat = np.radians(np.atleast_1d(lat_deg))
+    lon = np.radians(np.atleast_1d(lon_deg))
+    h = np.atleast_1d(h_km)
+    N = WGS84_A_KM / np.sqrt(
+        1 - WGS84_E2 * np.sin(lat) ** 2
+    )  # hint: isti N kao u ecef_to_geodetic
+    x = (N + h) * np.cos(lat) * np.cos(lon)  # hint: (N + h)·cosφ·cosλ
+    y = (N + h) * np.cos(lat) * np.sin(lon)  # hint: (N + h)·cosφ·sinλ
+    z = (N * (1 - WGS84_E2) + h) * np.sin(lat)  # hint: (N·(1 − e²) + h)·sinφ
+    return np.column_stack([x, y, z])
 
 
 if __name__ == "__main__":
