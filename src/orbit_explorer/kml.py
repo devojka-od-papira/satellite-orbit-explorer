@@ -7,7 +7,7 @@ import numpy as np
 
 from orbit_explorer.elements import load_elements
 from orbit_explorer.frames import ecef_to_geodetic, eci_to_ecef, gmst_rad
-from orbit_explorer.kepler import propagate_eci, time_grid_s
+from orbit_explorer.kepler import START, propagate_eci, time_grid_s
 
 OUTPUT_PATH = Path("outputs/orbits.kml")
 KML_STEP = 12  # keep every 12th epoch (60 s) so Google Earth stays fast
@@ -65,7 +65,7 @@ def build_kml() -> str:
             '<?xml version="1.0" encoding="UTF-8"?>',
             '<kml xmlns="http://www.opengis.net/kml/2.2">',
             "<Document>",
-            "  <name>Satellite Orbit Explorer, 2026-11-10</name>",
+            f"  <name>Satellite Orbit Explorer, {START:%Y-%m-%d}</name>",
             folder("Ground tracks", tracks),
             folder("Orbits (Earth-fixed, 3D)", orbits_ecef),
             folder("Orbits (inertial, Earth frozen at start)", orbits_eci),

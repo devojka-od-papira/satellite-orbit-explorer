@@ -7,11 +7,12 @@ import numpy as np
 from orbit_explorer.elements import (
     MU_EARTH_KM3_S2,
     load_elements,
+    load_reference_start,
     mean_motion_rad_s,
     semi_major_axis_km,
 )
 
-START = datetime(2026, 11, 10, tzinfo=UTC)
+START = load_reference_start()  # midnight UTC of the day the GP data was fetched
 SPAN_S = 86400
 STEP_S = 5
 

@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -9,10 +11,12 @@ from orbit_explorer.elements import (
 )
 from orbit_explorer.kepler import propagate_eci, solve_kepler, time_grid_s
 
+WORKSHOP_DATA = Path(__file__).parent / "data" / "workshop_2026-11-10.json"
 
-def find_sat(name: str) -> dict:
+
+def find_sat(name: str, path: Path | None = None) -> dict:
     """Satelit po delu imena (ne zavisi od velikih/malih slova)."""
-    for sat in load_elements():
+    for sat in load_elements(path) if path else load_elements():
         if name.lower() in sat["OBJECT_NAME"].lower():
             return sat
     raise KeyError(name)
@@ -43,6 +47,9 @@ def test_kepler_residual(e):
 
 
 # ---------- 3. Periodi prema referenci ----------
+# Reference values from the GNSS Academy workshop, for the GP data downloaded on
+# 2026-11-10. They are checked against that saved dataset, not the live data,
+# because fresh elements change (QZS-2's period moves after station-keeping).
 REFERENCE_PERIODS = [
     ("PULSAR-0", 1.578),
     ("GALILEO", 14.078),  # ako ima više Galileo satelita, upiši tačno ime (29)
@@ -53,7 +60,7 @@ REFERENCE_PERIODS = [
 
 @pytest.mark.parametrize("name, expected_hours", REFERENCE_PERIODS)
 def test_period_matches_reference(name, expected_hours):
-    sat = find_sat(name)
+    sat = find_sat(name, WORKSHOP_DATA)
     n = mean_motion_rad_s(sat["MEAN_MOTION"])  # rad/s
     period_hours = 2 * np.pi / n / 3600  # hint: T = 2π / n, pa sekunde → sati
     assert period_hours == pytest.approx(expected_hours, abs=1e-3)

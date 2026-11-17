@@ -2,6 +2,7 @@
 
 import json
 import math
+from datetime import datetime
 from pathlib import Path
 
 MU_EARTH_KM3_S2 = 398600.4418  # Earth's gravitational parameter
@@ -9,12 +10,19 @@ R_EARTH_KM = 6378.137  # equatorial radius, used for spherical-Earth altitudes
 SECONDS_PER_DAY = 86400.0
 
 DATA_PATH = Path("data/inputs/orbital_elements.json")
+MANIFEST_PATH = Path("data/inputs/data_manifest.json")
 
 
 def load_elements(path: Path = DATA_PATH) -> list[dict]:
     """Read GP JSON records, one dict per satellite."""
     with path.open() as f:
         return json.load(f)
+
+
+def load_reference_start(path: Path = MANIFEST_PATH) -> datetime:
+    """Start of the propagation window, from the data manifest (UTC)."""
+    with path.open() as f:
+        return datetime.fromisoformat(json.load(f)["reference_start_utc"])
 
 
 def mean_motion_rad_s(mean_motion_rev_day: float) -> float:

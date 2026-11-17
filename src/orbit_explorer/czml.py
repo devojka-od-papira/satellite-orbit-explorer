@@ -81,7 +81,7 @@ def description(sat: dict, speed_km_s: np.ndarray) -> str:
 def document_packet() -> dict:
     return {
         "id": "document",
-        "name": "Satellite Orbit Explorer, 2026-11-10",
+        "name": f"Satellite Orbit Explorer, {START:%Y-%m-%d}",
         "version": "1.0",
         "clock": {
             "interval": INTERVAL,

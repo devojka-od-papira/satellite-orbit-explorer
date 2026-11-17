@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 import numpy as np
 import pytest
 
@@ -86,9 +88,11 @@ def test_geo_stays_close_over_the_day():
 
 
 def test_epoch_age_sign():
-    assert epoch_age_days(find_sat("QZS-2")) > 20  # epoch weeks before START
-    assert epoch_age_days(find_sat("PULSAR")) < 0  # epoch later on START's day
-    assert START.hour == 0
+    def sat_at(epoch):
+        return {"EPOCH": f"{epoch:%Y-%m-%dT%H:%M:%S}.000000"}
+
+    assert epoch_age_days(sat_at(START - timedelta(days=2))) == pytest.approx(2)
+    assert epoch_age_days(sat_at(START + timedelta(hours=6))) == pytest.approx(-0.25)
 
 
 def test_summary_lists_every_satellite():

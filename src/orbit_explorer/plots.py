@@ -7,7 +7,7 @@ import numpy as np
 
 from orbit_explorer.elements import load_elements
 from orbit_explorer.frames import ecef_to_geodetic, eci_to_ecef, gmst_rad
-from orbit_explorer.kepler import propagate_eci, time_grid_s
+from orbit_explorer.kepler import START, propagate_eci, time_grid_s
 
 WORLD_MAP_PATH = Path("data/inputs/world_map.txt")
 OUTPUT_DIR = Path("outputs")
@@ -68,7 +68,7 @@ def plot_ground_tracks(path: Path) -> None:
         ylim=(-90, 90),
         xlabel="Longitude [deg]",
         ylabel="Latitude [deg]",
-        title="Ground tracks, 2026-11-10 (24 h)",
+        title=f"Ground tracks, {START:%Y-%m-%d} (24 h)",
     )
     ax.legend(loc="lower left", fontsize=8)
     ax.grid(alpha=0.3)
@@ -83,7 +83,7 @@ def plot_speeds(path: Path) -> None:
         _, v = propagate_eci(sat, t)
         ax.plot(t / 3600, v, label=sat["OBJECT_NAME"])
     ax.set(
-        xlabel="Hours since 2026-11-10 00:00 UTC",
+        xlabel=f"Hours since {START:%Y-%m-%d %H:%M} UTC",
         ylabel="Speed [km/s]",
         title="Orbital speed over the day",
     )
@@ -146,7 +146,7 @@ def plot_geo_vs_igso(path: Path) -> None:
     fig.text(
         0.5,
         0.04,
-        "24 h propagated from CelesTrak data, 10 Nov 2026 · "
+        f"24 h propagated from CelesTrak data, {START.day} {START:%b %Y} · "
         "github.com/devojka-od-papira/satellite-orbit-explorer",
         ha="center",
         fontsize=9,

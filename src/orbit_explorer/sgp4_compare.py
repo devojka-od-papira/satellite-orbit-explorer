@@ -137,7 +137,7 @@ def plot_differences(path: Path) -> None:
         ax.set_ylabel("Kepler − SGP4 [km]")
         ax.grid(alpha=0.3)
     for ax in axes[1]:
-        ax.set_xlabel("Hours since 2026-11-10 00:00 UTC")
+        ax.set_xlabel(f"Hours since {START:%Y-%m-%d %H:%M} UTC")
     axes[0, 0].legend(fontsize=8, loc="upper left")
     fig.suptitle("Two-body Kepler vs SGP4/SDP4: position difference over the day")
     fig.tight_layout()
