@@ -21,5 +21,10 @@ workshop reference values for the four satellites.
     python -m orbit_explorer.plots
     python -m orbit_explorer.kml
 
+## Development
+    pip install -e ".[dev]"
+    pre-commit install
+    pytest
+
 Built during GNSS Academy's Space Career Week 2026. Work in progress: tests,
 an SGP4 comparison and a 3D web viewer are next.
