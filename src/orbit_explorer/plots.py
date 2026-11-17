@@ -48,15 +48,21 @@ def plot_ground_tracks(path: Path) -> None:
         lat, lon, _ = ecef_to_geodetic(eci_to_ecef(pos_eci, theta))
         lon_b, lat_b = break_at_dateline(lon, lat)
         line = ax.plot(lon_b, lat_b, linewidth=1, label=sat["OBJECT_NAME"])[0]
+        color = line.get_color()
         if np.ptp(lon) < 1:  # geostationary: the track is a single point
             ax.scatter(
-                lon.mean(),
-                lat.mean(),
-                s=80,
-                color=line.get_color(),
-                edgecolor="black",
-                zorder=3,
+                lon.mean(), lat.mean(), s=80, color=color, edgecolor="black", zorder=3
             )
+            continue
+        # start: filled dot, end: hollow ring, so the direction of motion is visible
+        ax.scatter(lon[0], lat[0], s=50, color=color, edgecolor="black", zorder=3)
+        ax.scatter(
+            lon[-1], lat[-1], s=50, facecolor="white", edgecolor=color, lw=2, zorder=3
+        )
+    ax.scatter([], [], s=50, color="0.5", edgecolor="black", label="Start (00:00)")
+    ax.scatter(
+        [], [], s=50, facecolor="white", edgecolor="0.5", lw=2, label="End (24:00)"
+    )
     ax.set(
         xlim=(-180, 180),
         ylim=(-90, 90),
