@@ -33,6 +33,14 @@ download succeeds. It warns when an epoch is more than 3 days from the window
 start. CelesTrak asks for no more than one download of the same data every two
 hours.
 
+A GitHub Actions workflow (`.github/workflows/refresh.yml`) does this every
+day at 03:17 UTC. It runs the tests on the new data and opens a pull request,
+or updates the open one, titled "Refresh GP data from CelesTrak (date)". The
+PR description lists that day's Kepler vs SGP4 differences and passes over
+Belgrade. Merging it publishes the 3D viewer for the new day. The README
+figures and numbers stay at their documented date. The workflow can also be
+started by hand from the Actions tab.
+
 ## Validation
 All periods, perigee/apogee altitudes and speed ranges matched the GNSS Academy
 workshop reference values for the four satellites. That dataset (downloaded
