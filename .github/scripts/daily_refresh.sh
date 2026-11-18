@@ -4,21 +4,26 @@
 #
 # Run by .github/workflows/refresh.yml. Locally, DRY_RUN=1 downloads and tests
 # as usual, prints the PR title and body, and then puts data/inputs back as it
-# was; it never commits, pushes or opens a PR. (outputs/ is left showing the
-# downloaded day; re-run the scripts to go back.)
+# was; it never commits, pushes, comments or opens a PR. (outputs/ is left
+# showing the downloaded day; re-run the scripts to go back.)
 #
-# Needs the repository setting "Allow GitHub Actions to create and approve
-# pull requests" (Settings > Actions > General) to open the PR.
+# Opening the PR needs the repository setting "Allow GitHub Actions to create
+# and approve pull requests" (Settings > Actions > General).
 set -euo pipefail
 
 BRANCH=data/daily-refresh
 BOT_EMAIL="41898282+github-actions[bot]@users.noreply.github.com"
-MIN_HOURS_BETWEEN_DOWNLOADS=2 # CelesTrak: same data at most once per 2 hours
 DATA=(data/inputs/orbital_elements.json data/inputs/data_manifest.json)
+# Dry runs put the old manifest back, so remember their download time here,
+# or repeated dry runs would ignore CelesTrak's rate limit.
+LAST_DRY_RUN="$(git rev-parse --git-dir)/daily-refresh-last-download.json"
 
 WORK=$(mktemp -d)
 cleanup() {
   if [ "${DRY_RUN:-}" = 1 ] && [ -f "$WORK/orbital_elements.json" ]; then
+    if ! cmp -s data/inputs/data_manifest.json "$WORK/data_manifest.json"; then
+      cp data/inputs/data_manifest.json "$LAST_DRY_RUN"
+    fi
     cp "$WORK/orbital_elements.json" "$WORK/data_manifest.json" data/inputs/
     echo "DRY RUN: data/inputs restored."
   fi
@@ -26,40 +31,31 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# 0. Checks before downloading anything.
-HOURS=$(python - <<'PY'
-import json
-from datetime import UTC, datetime
+pr_number() {
+  gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty'
+}
 
-manifest = json.load(open("data/inputs/data_manifest.json"))
-last = datetime.fromisoformat(manifest["retrieved_utc"].replace("Z", "+00:00"))
-print(f"{(datetime.now(UTC) - last).total_seconds() / 3600:.1f}")
-PY
-)
-if python -c "import sys; sys.exit(not $HOURS < $MIN_HOURS_BETWEEN_DOWNLOADS)"; then
-  echo "Last download was $HOURS h ago; CelesTrak asks for at most one every" \
-    "$MIN_HOURS_BETWEEN_DOWNLOADS h. Nothing to do."
-  exit 0
-fi
+# 0. The refresh branch, if any. ls-remote fails loudly on a network or auth
+#    error; an empty answer means the branch doesn't exist.
+REMOTE_SHA=$(git ls-remote --heads origin "$BRANCH" | cut -f1)
+SEEN=(--seen-manifest "$LAST_DRY_RUN")
+if [ -n "$REMOTE_SHA" ]; then
+  git fetch --quiet origin "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"
+  # Its manifest records a download that main doesn't know about yet.
+  git show "origin/$BRANCH:data/inputs/data_manifest.json" > "$WORK/branch_manifest.json"
+  SEEN+=(--seen-manifest "$WORK/branch_manifest.json")
 
-if [ "${DRY_RUN:-}" != 1 ]; then
-  # The setting can only be read with admin rights; when the token can't read
-  # it, the PR step below reports the same problem.
-  if ALLOWED=$(gh api "repos/$GITHUB_REPOSITORY/actions/permissions/workflow" \
-    --jq .can_approve_pull_request_reviews 2>/dev/null) && [ "$ALLOWED" = false ]; then
-    echo "::error::Turn on 'Allow GitHub Actions to create and approve pull" \
-      "requests' in Settings > Actions > General, or no PR can be opened."
-    exit 1
-  fi
-
-  # Never overwrite someone's own commits on the open refresh PR.
-  if git fetch --quiet origin "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH" 2>/dev/null; then
-    OTHERS=$(git log "origin/main..origin/$BRANCH" --format=%ae | grep -vcF "$BOT_EMAIL" || true)
+  # Never overwrite someone's own commits on an open refresh PR. Merge commits
+  # (e.g. GitHub's "Update branch") don't count. A branch whose PR was closed
+  # is simply replaced.
+  PR=$(pr_number)
+  if [ -n "$PR" ]; then
+    OTHERS=$(git log --no-merges "origin/main..origin/$BRANCH" --format=%ae \
+      | grep -vcF "$BOT_EMAIL" || true)
     if [ "$OTHERS" -gt 0 ]; then
-      PR=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
-      MSG="Skipped the $(date -u +%F) refresh: \`$BRANCH\` has $OTHERS commit(s) not made by the refresh workflow, and refreshing would force-push over them. Merge or close this PR to resume the daily refresh."
+      MSG="Skipped the $(date -u +%F) refresh: this PR has $OTHERS commit(s) not made by the refresh workflow, and refreshing would force-push over them. Merge or close the PR to resume the daily refresh."
       echo "$MSG"
-      if [ -n "$PR" ]; then gh pr comment "$PR" --body "$MSG"; fi
+      if [ "${DRY_RUN:-}" != 1 ]; then gh pr comment "$PR" --body "$MSG"; fi
       exit 0
     fi
   fi
@@ -67,9 +63,14 @@ fi
 
 if [ "${DRY_RUN:-}" = 1 ]; then cp "${DATA[@]}" "$WORK/"; fi
 
-# 1. Download. fetch.py writes nothing unless every satellite validates, so a
-#    failed download fails this step and leaves the data untouched.
-python -m orbit_explorer.fetch | tee "$WORK/fetch.txt"
+# 1. Download. fetch.py refuses within 2 hours of the last download (exit 3)
+#    and writes nothing unless every satellite validates.
+set +e
+python -m orbit_explorer.fetch "${SEEN[@]}" | tee "$WORK/fetch.txt"
+STATUS=${PIPESTATUS[0]}
+set -e
+if [ "$STATUS" -eq 3 ]; then exit 0; fi
+if [ "$STATUS" -ne 0 ]; then exit "$STATUS"; fi
 
 # 2. Test the new data. A failure stops here: no commit, no PR. (CI runs the
 #    tests again on every Python version; this run keeps bad data out of PRs.)
@@ -82,11 +83,21 @@ python -m orbit_explorer.visibility > /dev/null
 DAY=$(python -c "from orbit_explorer.elements import load_reference_start as s; print(f'{s():%Y-%m-%d}')")
 TITLE="Refresh GP data from CelesTrak ($DAY)"
 
-STALE=$(grep '^Warning:' "$WORK/fetch.txt" | sed 's/^Warning: //' || true)
+STALE=$(python - <<'PY'
+import json
+
+from orbit_explorer.elements import MANIFEST_PATH
+from orbit_explorer.fetch import STALE_DAYS, stale_records
+
+stale = stale_records(json.loads(MANIFEST_PATH.read_text()))
+if stale:
+    print(f"Epoch more than {STALE_DAYS} days from the window start: {', '.join(stale)}")
+PY
+)
 WARNING=""
 if [ -n "$STALE" ]; then
   TITLE="$TITLE: stale elements"
-  WARNING=$(printf '> [!WARNING]\n> %s\n> Check CelesTrak before merging: the viewer would be built on old elements.\n' "$STALE")
+  WARNING=$(printf '> [!WARNING]\n> %s.\n> Check CelesTrak before merging: the viewer would be built on old elements.\n' "$STALE")
 fi
 
 cat > "$WORK/body.md" <<EOF
@@ -127,20 +138,22 @@ if [ "${DRY_RUN:-}" = 1 ]; then
   exit 0
 fi
 
-# 4. One branch, force-pushed each day, so open refreshes never pile up.
+# 4. One branch, replaced each day, so open refreshes never pile up. The lease
+#    makes the push fail if anyone pushed to the branch after the check above
+#    (an empty SHA means "the branch must still not exist").
 git config user.name "github-actions[bot]"
 git config user.email "$BOT_EMAIL"
 git switch -C "$BRANCH"
 git add "${DATA[@]}"
 git commit -m "$TITLE"
-git push --force origin "$BRANCH"
+git push --force-with-lease="$BRANCH:$REMOTE_SHA" origin "$BRANCH"
 
 # Pull requests opened with GITHUB_TOKEN do not trigger other workflows, so
 # start CI on the branch explicitly, right after the push, so the new commit
 # gets checks even if the PR step below fails.
 gh workflow run ci.yml --ref "$BRANCH"
 
-PR=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
+PR=$(pr_number)
 if [ -n "$PR" ]; then
   gh pr edit "$PR" --title "$TITLE" --body-file "$WORK/body.md"
 elif ! gh pr create --base main --head "$BRANCH" --title "$TITLE" --body-file "$WORK/body.md"; then

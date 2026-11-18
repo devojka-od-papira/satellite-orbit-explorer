@@ -31,7 +31,8 @@ from CelesTrak:
 This rewrites both files for the same four satellites, but only if every
 download succeeds. It warns when an epoch is more than 3 days from the window
 start. CelesTrak asks for no more than one download of the same data every two
-hours.
+hours, so it refuses to download again within 2 hours of the last download
+(`--force` overrides).
 
 A GitHub Actions workflow (`.github/workflows/refresh.yml`) does this every
 day at 03:17 UTC. It runs the tests on the new data and opens a pull request,
@@ -49,9 +50,11 @@ started by hand from the Actions tab.
   starts with a warning.
 - **Your commits are safe.** If the open refresh PR has commits that the
   workflow did not make, it skips that day and leaves a comment instead of
-  force-pushing over them.
-- **Rate limit.** It does nothing if the last download was less than 2 hours
-  ago.
+  force-pushing over them. Merge commits don't count. Once that PR is closed,
+  the branch is replaced again. The push uses `--force-with-lease`, so a
+  commit pushed during the run is never lost.
+- **Rate limit.** It counts the download on an unmerged refresh branch too, so
+  starting it by hand soon after the morning run does nothing.
 - **Local preview.** `DRY_RUN=1 .github/scripts/daily_refresh.sh` previews the
   PR, then puts the data back.
 
