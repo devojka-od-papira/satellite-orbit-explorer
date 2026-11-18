@@ -7,12 +7,17 @@ from orbit_explorer.kepler import time_grid_s
 from orbit_explorer.visibility import (
     BELGRADE,
     ELEVATION_MASK_DEG,
+    STATIONS,
+    STATIONS_BY_SLUG,
     Station,
     build_summary,
     clock,
     enu_rotation,
     find_passes,
     look_angles,
+    main,
+    mask_label_hour,
+    output_paths,
     parse_station,
     satellite_look_angles,
     with_mask_crossings,
@@ -127,6 +132,75 @@ def test_summary_and_cli():
         assert sat["OBJECT_NAME"] in summary
 
 
+# ---------- Choosing a station ----------
+def test_no_options_means_belgrade():
+    assert parse_station([]) is BELGRADE
+
+
+@pytest.mark.parametrize("station", STATIONS, ids=[s.slug for s in STATIONS])
+def test_station_option_picks_a_viewer_station(station):
+    assert parse_station(["--station", station.slug]) is station
+    assert parse_station(["--station", station.name.upper()]) is station
+
+
+@pytest.mark.parametrize(
+    "argv, message",
+    [
+        (["--station", "paris"], "invalid choice: 'paris'"),
+        (["--station", "tokyo", "--lat", "35"], "can't be combined with --lat"),
+        (["--lat", "95"], "--lat must be between -90 and 90"),
+        (["--lon", "-200"], "--lon must be between -180 and 180"),
+        (["--name", "!!!", "--lat", "1"], "at least one letter or digit"),
+    ],
+    ids=["unknown", "station-and-custom", "lat", "lon", "name"],
+)
+def test_bad_station_options_are_refused(argv, message, capsys):
+    with pytest.raises(SystemExit) as exit_info:
+        parse_station(argv)
+    assert exit_info.value.code == 2
+    assert message in capsys.readouterr().err
+
+
+def test_southern_and_western_coordinates_are_written_that_way():
+    sydney, quito = (STATIONS_BY_SLUG[s] for s in ("sydney", "quito"))
+    assert sydney.coordinates == "33.8688° S, 151.2093° E"
+    assert quito.coordinates == "0.1807° S, 78.4678° W"
+    assert f"Station: {quito.coordinates}, 2850 m" in build_summary(quito)
+
+
+def test_slug_is_safe_in_a_file_name():
+    assert Station("Novi Sad", 0, 0).slug == "novi-sad"
+    assert Station("São Paulo / GRU", 0, 0).slug == "são-paulo-gru"
+    assert Station("my_site", 0, 0).slug == "my-site"
+
+
+def test_belgrade_keeps_the_plain_output_names(tmp_path):
+    names = {k: p.name for k, p in output_paths(BELGRADE, tmp_path).items()}
+    assert names == {
+        "summary": "visibility.txt",
+        "elevation": "visibility_elevation.png",
+        "skyplot": "visibility_skyplot.png",
+    }
+    # Belgrade's name at other coordinates is a different station
+    elsewhere = Station("Belgrade", 1, 1)
+    assert (
+        output_paths(elsewhere, tmp_path)["summary"].name == "visibility_belgrade.txt"
+    )
+
+
+def test_main_writes_the_stations_own_files(tmp_path):
+    paths = main(["--station", "tokyo"], output_dir=tmp_path)
+    assert sorted(p.name for p in tmp_path.iterdir()) == [
+        "visibility_tokyo.txt",
+        "visibility_tokyo_elevation.png",
+        "visibility_tokyo_skyplot.png",
+    ]
+    summary = paths["summary"].read_text()
+    assert summary.startswith("VISIBILITY FROM TOKYO")
+    qzs = next(line for line in summary.splitlines() if line.startswith("QZS-2"))
+    assert "0 pass(es)" not in qzs  # the reason Tokyo is offered
+
+
 def test_mask_crossings_are_inserted_on_the_line():
     x = np.array([0.0, 1.0, 2.0, 3.0])
     el = np.array([0.0, 20.0, 20.0, 0.0])
@@ -143,3 +217,13 @@ def test_peak_just_below_mask_gets_no_visible_points():
     assert len(x_c) == len(x)
     assert not (el_c >= 10).any()
     assert find_passes(x, el, np.zeros_like(x), mask=10) == []
+
+
+def test_mask_label_moves_off_a_curve_near_the_mask():
+    h = np.arange(0, 24, 0.01)
+    flat = np.full_like(h, -40.0)
+    assert mask_label_hour(h, [flat]) == pytest.approx(6.2)  # the usual spot
+    crossing = np.where((h > 6) & (h < 7), 15.0, -40.0)  # just above the line
+    x = mask_label_hour(h, [flat, crossing])
+    assert x >= 7 + 0.3 or x + 1.4 + 0.3 <= 6  # clear of it, margins included
+    assert x == pytest.approx(7.3, abs=0.11)  # and the nearest clear spot

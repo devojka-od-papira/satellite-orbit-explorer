@@ -106,6 +106,14 @@ Belgrade on 2026-11-17:
 
 ![Sky plot from Belgrade](docs/images/visibility_skyplot.png)
 
+The same script works for the 3D viewer's other stations: `--station tokyo`,
+`sydney` or `quito`. Their files get the station's name, e.g.
+`outputs/visibility_tokyo_skyplot.png`, so Belgrade's are never overwritten.
+From Tokyo, QZS-2 traces its figure eight high in the southern sky and stays
+above 10° for about 19 hours:
+
+![Sky plot from Tokyo](docs/images/visibility_tokyo_skyplot.png)
+
 ## Run it
     pip install -e .
     python -m orbit_explorer.report
@@ -113,7 +121,9 @@ Belgrade on 2026-11-17:
     python -m orbit_explorer.kml
     python -m orbit_explorer.czml
     python -m orbit_explorer.sgp4_compare
-    python -m orbit_explorer.visibility    # --name, --lat, --lon, --height for another station
+    python -m orbit_explorer.visibility    # Belgrade
+    python -m orbit_explorer.visibility --station tokyo    # or sydney, quito
+    python -m orbit_explorer.visibility --name "Novi Sad" --lat 45.25 --lon 19.84 --height 80
 
 ## 3D viewer
 A static CesiumJS page in `web/` that loads `orbits.czml`. Its interface
