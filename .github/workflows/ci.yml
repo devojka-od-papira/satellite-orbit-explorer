@@ -48,3 +48,17 @@ jobs:
         with:
           name: outputs
           path: outputs/
+
+  viewer:
+    # The 3D viewer in headless Chromium: loading, panel, stations, passes.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -e ".[viewer]"
+      - run: python -m playwright install --with-deps chromium
+      - run: pytest tests/viewer -v
