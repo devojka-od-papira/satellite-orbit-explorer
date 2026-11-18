@@ -4,11 +4,12 @@ from datetime import timedelta
 import numpy as np
 import pytest
 
-from orbit_explorer.czml import CZML_STEP, build_czml
+from orbit_explorer.czml import CZML_STEP, build_czml, visibility_radius_deg
 from orbit_explorer.elements import load_elements
 from orbit_explorer.frames import ecef_to_geodetic, eci_to_ecef, gmst_rad
 from orbit_explorer.kepler import SPAN_S, START, propagate_eci, time_grid_s
 from orbit_explorer.sgp4_compare import compare, propagate_sgp4
+from orbit_explorer.visibility import BELGRADE, find_passes, satellite_look_angles
 
 SATS = load_elements()
 T = time_grid_s()[::CZML_STEP]
@@ -39,10 +40,18 @@ def test_document_packet_comes_first(czml):
     )
 
 
-def test_five_packets_per_satellite_with_unique_ids(czml):
+def test_packets_are_complete_with_unique_ids(czml):
+    """Document, five packets per satellite, the station, its rings and links,
+    and nothing else."""
     ids = [p["id"] for p in czml]
-    assert len(ids) == 1 + 5 * len(SATS)
     assert len(set(ids)) == len(ids)
+    for sat in SATS:
+        norad = sat["NORAD_CAT_ID"]
+        for prefix in ("sat", "track", "orbit", "sgp4", "sgp4orbit"):
+            assert f"{prefix}-{norad}" in ids
+    rings = [i for i in ids if i.startswith("ring-")]
+    links = [i for i in ids if i.startswith("link-")]
+    assert len(ids) == 1 + 5 * len(SATS) + 1 + len(rings) + len(links)
 
 
 def test_is_plain_json(czml):
@@ -120,3 +129,68 @@ def test_geostationary_satellite_barely_moves(czml):
     _, pos = samples(packet(czml, "sat-38652"))  # SES-5
     drift_km = np.linalg.norm(pos - pos.mean(axis=0), axis=1).max()
     assert drift_km < 50
+
+
+# ---------- Ground station ----------
+def station_passes(czml):
+    return json.loads(packet(czml, "station")["properties"]["passes"])
+
+
+def test_station_sits_at_belgrade(czml):
+    lon, lat, h = packet(czml, "station")["position"]["cartographicDegrees"]
+    assert (lat, lon) == (BELGRADE.lat_deg, BELGRADE.lon_deg)
+    assert h == pytest.approx(BELGRADE.height_km * 1000)
+
+
+def test_station_passes_match_visibility(czml):
+    """The panel lists exactly the passes in visibility.txt."""
+    t = time_grid_s()
+    expected = []
+    for sat in SATS:
+        az, el, _ = satellite_look_angles(sat, t, BELGRADE)
+        expected += [(sat["NORAD_CAT_ID"], p) for p in find_passes(t, el, az)]
+    passes = station_passes(czml)
+    assert len(passes) == len(expected)
+    assert [p["rise"] for p in passes] == sorted(p["rise"] for p in passes)
+    for norad, p in expected:
+        rise = START + timedelta(seconds=round(p.rise_s))
+        match = [
+            q
+            for q in passes
+            if q["norad"] == norad and q["rise"] == f"{rise:%Y-%m-%dT%H:%M:%SZ}"
+        ]
+        assert len(match) == 1
+        assert match[0]["maxEl"] == pytest.approx(p.max_el_deg, abs=0.05)
+
+
+def test_links_point_from_station_to_sgp4_during_passes(czml):
+    ids = {p["id"] for p in czml}
+    passes = station_passes(czml)
+    links = [p for p in czml if p["id"].startswith("link-")]
+    assert links
+    for link in links:
+        refs = link["polyline"]["positions"]["references"]
+        assert refs[0] == "station#position"
+        assert refs[1].split("#")[0] in ids and refs[1].startswith("sgp4-")
+        norad = int(link["id"].split("-")[1])
+        assert len(link["availability"]) == sum(p["norad"] == norad for p in passes)
+    # QZS-2 never rises above the mask from Belgrade: no link at all
+    assert "link-42738" not in ids
+
+
+def test_visibility_ring_only_for_leo(czml):
+    rings = [p["id"] for p in czml if p["id"].startswith("ring-")]
+    assert rings == ["ring-64541"]  # PULSAR-0
+
+
+def test_visibility_radius():
+    r = 6378.137
+    # a 90° mask leaves only the point straight overhead; 0° is the horizon
+    assert visibility_radius_deg(r + 500, 90) == pytest.approx(0, abs=1e-9)
+    assert visibility_radius_deg(r + 500, 0) == pytest.approx(
+        np.degrees(np.arccos(r / (r + 500))), rel=1e-9
+    )
+    # PULSAR-0 at ~505 km and a 10° mask: about 14° of arc, ~1,570 km
+    assert np.radians(visibility_radius_deg(r + 505, 10)) * r == pytest.approx(
+        1570, abs=20
+    )

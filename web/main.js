@@ -24,6 +24,8 @@ const MODEL_HINTS = {
 
 const WHOLE_EARTH_HEIGHT_M = 9e7; // far enough to see the GEO ring
 const LIVE_UPDATE_MS = 250;
+const SHORT_PASS_S = 15 * 60; // LEO passes: slow the clock down to watch them
+const SHORT_PASS_MULTIPLIER = 30;
 
 const viewer = new Cesium.Viewer("globe", {
   // Imagery bundled with CesiumJS: no account or access token needed.
@@ -55,12 +57,21 @@ const ui = {
   orbits: document.getElementById("show-orbits"),
   freeCamera: document.getElementById("free-camera"),
   loading: document.getElementById("loading"),
+  stationSection: document.getElementById("station-section"),
+  stationTitle: document.getElementById("station-title"),
+  stationHint: document.getElementById("station-hint"),
+  passList: document.getElementById("pass-list"),
+  showStation: document.getElementById("show-station"),
 };
 
 let frame = "fixed";
 let model = "both";
 let inertialReset = false; // next inertial camera update jumps to the whole-Earth view
-const satellites = []; // { entity, track, orbit, sgp4, sgp4orbit, button, live }
+const satellites = []; // { entity, track, orbit, sgp4, sgp4orbit, button, live, sky }
+// Ground station: { entity, name, maskDeg, toLocal, links, ring, passes: [{ ..., row }] }
+let station;
+let defaultMultiplier; // the CZML clock speed, restored after a slowed-down pass
+let slowPass; // the pass currently playing at SHORT_PASS_MULTIPLIER
 
 // ---------- Camera in the inertial frame ----------
 
@@ -155,6 +166,7 @@ function applyVisibility() {
     s.sgp4orbit.show = sgp4 && ui.orbits.checked;
   }
   ui.tracks.disabled = !kepler;
+  applyStationVisibility();
 }
 
 function setModel(next) {
@@ -187,7 +199,8 @@ function addSatellite(ds, entity, start) {
     <span class="swatch" style="background:${color}"></span>
     <span class="sat-name"></span>
     <span class="badge">${ORBIT_CLASS[norad] ?? ""}</span>
-    <span class="sat-live">&nbsp;</span>`;
+    <span class="sat-live">&nbsp;</span>
+    <span class="sat-sky" hidden></span>`;
   button.querySelector(".sat-name").textContent = shortName(entity.name);
 
   const li = document.createElement("li");
@@ -202,9 +215,164 @@ function addSatellite(ds, entity, start) {
     sgp4orbit: ds.entities.getById(`sgp4orbit-${norad}`),
     button,
     live: button.querySelector(".sat-live"),
+    sky: button.querySelector(".sat-sky"),
+    norad: Number(norad),
+    color,
   };
   button.addEventListener("click", () => follow(sat));
   satellites.push(sat);
+}
+
+// ---------- Ground station ----------
+
+function utcClock(iso) {
+  return iso.slice(11, 16);
+}
+
+function passLabel(p) {
+  if (!p.risesInWindow && !p.setsInWindow) return "All day";
+  const rise = p.risesInWindow ? utcClock(p.rise) : "00:00";
+  const set = p.setsInWindow ? utcClock(p.set) : "24:00";
+  return `${rise}–${set}`;
+}
+
+function jumpToPass(p) {
+  const sat = satellites.find((s) => s.norad === p.norad);
+  const rise = Cesium.JulianDate.fromIso8601(p.rise);
+  const set = Cesium.JulianDate.fromIso8601(p.set);
+  const duration = Cesium.JulianDate.secondsDifference(set, rise);
+  const lead = Math.min(60, duration / 10);
+  const start = Cesium.JulianDate.addSeconds(rise, -lead, new Cesium.JulianDate());
+  viewer.clock.currentTime = Cesium.JulianDate.greaterThan(start, viewer.clock.startTime)
+    ? start
+    : viewer.clock.startTime.clone();
+  slowPass = duration < SHORT_PASS_S ? p : undefined;
+  viewer.clock.multiplier = slowPass ? SHORT_PASS_MULTIPLIER : defaultMultiplier;
+  viewer.clock.shouldAnimate = true;
+  // Look down on the station from high enough to see the satellite's side of
+  // the sky: a few thousand km for LEO, much further for higher orbits.
+  setFrame("fixed");
+  viewer.trackedEntity = undefined;
+  viewer.selectedEntity = model === "kepler" ? sat?.entity : sat?.sgp4;
+  const leo = sat && Cesium.Cartographic.fromCartesian(
+    sat.entity.position.getValue(rise),
+  ).height < 2e6;
+  const { lon, lat } = station;
+  viewer.camera.flyTo({
+    destination: Cesium.Cartesian3.fromDegrees(lon, lat - (leo ? 12 : 35), leo ? 4.5e6 : 3.5e7),
+    orientation: { heading: 0, pitch: Cesium.Math.toRadians(leo ? -60 : -75), roll: 0 },
+    duration: 1.5,
+  });
+}
+
+function addPassRow(p) {
+  const sat = satellites.find((s) => s.norad === p.norad);
+  const row = document.createElement("button");
+  row.type = "button";
+  row.className = "pass";
+  row.innerHTML = `
+    <span class="swatch" style="background:${sat?.color ?? "#999"}"></span>
+    <span class="pass-name"></span>
+    <span class="pass-time">${passLabel(p)}</span>
+    <span class="pass-max">max ${Math.round(p.maxEl)}°</span>`;
+  row.querySelector(".pass-name").textContent = p.name;
+  const pass = {
+    ...p,
+    row,
+    riseJd: Cesium.JulianDate.fromIso8601(p.rise),
+    setJd: Cesium.JulianDate.fromIso8601(p.set),
+  };
+  row.addEventListener("click", () => jumpToPass(pass));
+  const li = document.createElement("li");
+  li.append(row);
+  ui.passList.append(li);
+  return pass;
+}
+
+function setupStation(ds, start) {
+  const entity = ds.entities.getById("station");
+  if (!entity) return;
+  const props = entity.properties.getValue(start);
+  const position = entity.position.getValue(start);
+  const carto = Cesium.Cartographic.fromCartesian(position);
+  const name = entity.name.replace(/ ground station$/, "");
+  station = {
+    entity,
+    name,
+    maskDeg: props.maskDeg,
+    lon: Cesium.Math.toDegrees(carto.longitude),
+    lat: Cesium.Math.toDegrees(carto.latitude),
+    // Earth-fixed position -> station East-North-Up
+    toLocal: Cesium.Matrix4.inverseTransformation(
+      Cesium.Transforms.eastNorthUpToFixedFrame(position),
+      new Cesium.Matrix4(),
+    ),
+    rings: ds.entities.values.filter((e) => e.id.startsWith("ring-")),
+    links: ds.entities.values.filter((e) => e.id.startsWith("link-")),
+    passes: [],
+  };
+  ui.stationTitle.textContent = `Passes over ${name}`;
+  ui.stationHint.textContent =
+    `Above ${props.maskDeg}° elevation, from SGP4, times in UTC. Click a pass to ` +
+    "jump to it. Short LEO passes play slower.";
+  station.passes = JSON.parse(props.passes).map(addPassRow);
+  for (const s of satellites) s.sky.hidden = false;
+  ui.stationSection.hidden = false;
+  applyStationVisibility(); // the browser may have restored an unchecked box
+}
+
+function applyStationVisibility() {
+  if (!station) return;
+  const show = ui.showStation.checked;
+  station.entity.show = show;
+  for (const e of station.rings) e.show = show;
+  // Links end at the SGP4 marker (passes come from SGP4): hide them with it.
+  for (const e of station.links) e.show = show && model !== "kepler";
+}
+
+function lookAngles(positionFixed) {
+  const local = Cesium.Matrix4.multiplyByPoint(
+    station.toLocal,
+    positionFixed,
+    scratch.local,
+  );
+  const range = Cesium.Cartesian3.magnitude(local);
+  const el = Cesium.Math.toDegrees(Math.asin(local.z / range));
+  const az = (Cesium.Math.toDegrees(Math.atan2(local.x, local.y)) + 360) % 360;
+  return { az, el };
+}
+
+function updateStation(sat, pos4) {
+  // Always SGP4, like the pass list, so a row and its pass never disagree.
+  // ">=" as in visibility.find_passes.
+  const { az, el } = lookAngles(pos4);
+  const up = el >= station.maskDeg;
+  sat.sky.classList.toggle("up", up);
+  const deg = (x) => `${Math.round(x)}°`.replace("-", "−");
+  sat.sky.textContent = up
+    ? `${station.name}: ${deg(el)} up, azimuth ${deg(az)}`
+    : `${station.name}: ${deg(el)}, below the mask`;
+}
+
+function updatePassRows(time) {
+  // Back to normal speed once the clock leaves the slowed-down pass (it ended,
+  // or the user scrubbed away), unless the user has changed the speed.
+  const outside =
+    slowPass &&
+    (Cesium.JulianDate.greaterThan(time, slowPass.setJd) ||
+      Cesium.JulianDate.secondsDifference(slowPass.riseJd, time) > 120);
+  if (outside) {
+    if (viewer.clock.multiplier === SHORT_PASS_MULTIPLIER) {
+      viewer.clock.multiplier = defaultMultiplier;
+    }
+    slowPass = undefined;
+  }
+  for (const p of station.passes) {
+    const active =
+      !Cesium.JulianDate.lessThan(time, p.riseJd) &&
+      !Cesium.JulianDate.greaterThan(time, p.setJd);
+    p.row.setAttribute("aria-current", String(active));
+  }
 }
 
 // ---------- Live altitude and speed ----------
@@ -216,6 +384,7 @@ const scratch = {
   b: new Cesium.Cartesian3(),
   kepler: new Cesium.Cartesian3(), // used by updateLive
   sgp4: new Cesium.Cartesian3(),
+  local: new Cesium.Cartesian3(), // used by lookAngles
 };
 
 function inertialSpeedKmS(sat, time) {
@@ -252,7 +421,9 @@ function updateLive(clock) {
     sat.live.textContent =
       `${Math.round(altKm).toLocaleString("en-US")} km · ${v.toFixed(3)} km/s` +
       ` · Δ ${Math.round(gapKm)} km`;
+    if (station) updateStation(sat, pos4);
   }
+  if (station) updatePassRows(clock.currentTime);
 }
 
 // ---------- Wiring ----------
@@ -262,6 +433,7 @@ ui.inertial.addEventListener("click", () => setFrame("inertial"));
 ui.freeCamera.addEventListener("click", showWholeEarth);
 ui.tracks.addEventListener("change", applyVisibility);
 ui.orbits.addEventListener("change", applyVisibility);
+ui.showStation.addEventListener("change", applyStationVisibility);
 for (const [name, button] of Object.entries(ui.models)) {
   button.addEventListener("click", () => setModel(name));
 }
@@ -281,6 +453,7 @@ async function main() {
   try {
     const ds = await Cesium.CzmlDataSource.load("orbits.czml");
     await viewer.dataSources.add(ds); // the viewer adopts the CZML clock
+    defaultMultiplier = viewer.clock.multiplier;
     const start = ds.clock.startTime;
     const day = Cesium.JulianDate.toDate(start);
     document.getElementById("window-date").textContent = `, ${day.toLocaleDateString(
@@ -290,6 +463,7 @@ async function main() {
     for (const entity of ds.entities.values) {
       if (entity.id.startsWith("sat-")) addSatellite(ds, entity, start);
     }
+    setupStation(ds, start);
     setModel(model);
     viewer.clock.onTick.addEventListener(updateLive);
     updateLive(viewer.clock);

@@ -98,8 +98,11 @@ def find_passes(
     az: np.ndarray,
     mask: float = ELEVATION_MASK_DEG,
 ) -> list[Pass]:
-    """Intervals with elevation above the mask, rise/set interpolated."""
-    above = el > mask
+    """Intervals with elevation at or above the mask, rise/set interpolated.
+
+    ``>=`` here, in with_mask_crossings and in the 3D viewer, so the table, the
+    figure and the viewer agree on what counts as visible."""
+    above = el >= mask
     edges = np.diff(above.astype(int))
     starts = list(np.nonzero(edges == 1)[0])  # crossing between i and i+1
     ends = list(np.nonzero(edges == -1)[0])

@@ -11,6 +11,14 @@ Each satellite gets five packets:
                   TEME positions go through the same GMST rotation as Kepler,
                   so the distance on screen is the one in sgp4_compare.
 - sgp4orbit-<id>: the SGP4 orbit in the inertial frame, dashed.
+
+The ground station (Belgrade by default) adds:
+- station:        a marker with the day's passes as a JSON property, which the
+                  viewer lists in its panel.
+- ring-<id>:      for LEO satellites, the circle on the ground inside which the
+                  satellite is above the elevation mask as seen from the station.
+- link-<id>:      a line from the station to the SGP4 satellite, shown only
+                  during passes (the same passes as visibility.py).
 """
 
 import json
@@ -21,6 +29,7 @@ import numpy as np
 
 from orbit_explorer import style
 from orbit_explorer.elements import (
+    R_EARTH_KM,
     load_elements,
     mean_motion_rad_s,
     perigee_apogee_altitude_km,
@@ -30,9 +39,19 @@ from orbit_explorer.elements import (
 from orbit_explorer.frames import ecef_to_geodetic, eci_to_ecef, gmst_rad
 from orbit_explorer.kepler import SPAN_S, START, propagate_eci, time_grid_s
 from orbit_explorer.sgp4_compare import propagate_sgp4
+from orbit_explorer.visibility import (
+    BELGRADE,
+    ELEVATION_MASK_DEG,
+    Station,
+    find_passes,
+    satellite_look_angles,
+)
 
 OUTPUT_PATH = Path("outputs/orbits.czml")
 CZML_STEP = 12  # keep every 12th epoch (60 s), plenty for Lagrange interpolation
+LEO_MAX_ALTITUDE_KM = 2000.0
+WHITE = [255, 255, 255, 255]
+BLACK = [0, 0, 0, 255]
 
 
 def iso(dt) -> str:
@@ -125,14 +144,14 @@ def satellite_packets(sat: dict, rgb: tuple[int, int, int]) -> list[dict]:
             "point": {
                 "pixelSize": 10,
                 "color": {"rgba": rgba(rgb)},
-                "outlineColor": {"rgba": [255, 255, 255, 255]},
+                "outlineColor": {"rgba": WHITE},
                 "outlineWidth": 1,
             },
             "label": {
                 "text": name.split(" (")[0],
                 "font": "13px sans-serif",
                 "fillColor": {"rgba": rgba(rgb)},
-                "outlineColor": {"rgba": [0, 0, 0, 255]},  # dark: bright labels
+                "outlineColor": {"rgba": BLACK},  # dark: bright labels
                 "outlineWidth": 2,
                 "style": "FILL_AND_OUTLINE",
                 "horizontalOrigin": "LEFT",
@@ -194,11 +213,152 @@ def satellite_packets(sat: dict, rgb: tuple[int, int, int]) -> list[dict]:
     ]
 
 
-def build_czml() -> list[dict]:
+def visibility_radius_deg(orbit_radius_km: float, mask_deg: float) -> float:
+    """Earth central angle from the station to the sub-satellite point at which
+    a satellite at this distance from Earth's centre sits exactly on the
+    elevation mask (spherical Earth of radius R_EARTH_KM, as for altitudes)."""
+    el = np.radians(mask_deg)
+    ratio = R_EARTH_KM * np.cos(el) / orbit_radius_km
+    return float(np.degrees(np.arccos(ratio) - el))
+
+
+def circle_degrees(lat_deg: float, lon_deg: float, radius_deg: float) -> list:
+    """Flat CZML [lon, lat, 0, ...] for a small circle on the sphere."""
+    lat0, lon0, d = np.radians([lat_deg, lon_deg, radius_deg])
+    bearing = np.radians(np.arange(0, 361, 2.0))
+    lat = np.arcsin(
+        np.sin(lat0) * np.cos(d) + np.cos(lat0) * np.sin(d) * np.cos(bearing)
+    )
+    lon = lon0 + np.arctan2(
+        np.sin(bearing) * np.sin(d) * np.cos(lat0),
+        np.cos(d) - np.sin(lat0) * np.sin(lat),
+    )
+    lon = (np.degrees(lon) + 180) % 360 - 180
+    return ground_track_degrees(np.degrees(lat), lon)
+
+
+def pass_interval(rise_s: float, set_s: float) -> str:
+    start = START + timedelta(seconds=int(np.floor(rise_s)))
+    stop = START + timedelta(seconds=int(np.ceil(set_s)))
+    return f"{iso(start)}/{iso(stop)}"
+
+
+def station_packets(station: Station, sats: list[dict]) -> list[dict]:
+    t = time_grid_s()
+    passes, packets = [], []
+    for sat in sats:
+        norad = sat["NORAD_CAT_ID"]
+        rgb = style.hex_to_rgb(style.sat_color(sat, dark=True))
+        az, el, _ = satellite_look_angles(sat, t, station)
+        sat_passes = find_passes(t, el, az)
+        for p in sat_passes:
+            passes.append(
+                {
+                    "norad": norad,
+                    "name": style.short_name(sat),
+                    "rise": iso(START + timedelta(seconds=round(p.rise_s))),
+                    "set": iso(START + timedelta(seconds=round(p.set_s))),
+                    "maxEl": round(p.max_el_deg, 1),
+                    "risesInWindow": p.rises_in_window,
+                    "setsInWindow": p.sets_in_window,
+                }
+            )
+        if sat_passes:
+            packets.append(
+                {
+                    "id": f"link-{norad}",
+                    "name": f"{style.short_name(sat)} seen from {station.name}",
+                    "availability": [
+                        pass_interval(p.rise_s, p.set_s) for p in sat_passes
+                    ],
+                    "polyline": {
+                        "positions": {
+                            "references": ["station#position", f"sgp4-{norad}#position"]
+                        },
+                        "arcType": "NONE",
+                        "width": 1.5,
+                        "material": {"solidColor": {"color": {"rgba": rgba(rgb, 200)}}},
+                    },
+                }
+            )
+
+        a = semi_major_axis_km(mean_motion_rad_s(sat["MEAN_MOTION"]))
+        _, apogee = perigee_apogee_altitude_km(a, sat["ECCENTRICITY"])
+        if apogee < LEO_MAX_ALTITUDE_KM:
+            radius = visibility_radius_deg(a, ELEVATION_MASK_DEG)
+            packets.append(
+                {
+                    "id": f"ring-{norad}",
+                    "name": f"Where {style.short_name(sat)} is visible from "
+                    f"{station.name}",
+                    "description": f"<p>While {style.short_name(sat)} is inside "
+                    f"this circle (radius {np.radians(radius) * R_EARTH_KM:.0f}"
+                    f" km), it is more than {ELEVATION_MASK_DEG:.0f}° above "
+                    f"{station.name}'s horizon.</p>",
+                    "polyline": {
+                        "positions": {
+                            "cartographicDegrees": circle_degrees(
+                                station.lat_deg, station.lon_deg, radius
+                            )
+                        },
+                        "clampToGround": True,
+                        "width": 1.5,
+                        # white, so it is not mistaken for the satellite's track
+                        "material": {
+                            "polylineDash": {
+                                "color": {"rgba": [255, 255, 255, 200]},
+                                "dashLength": 10,
+                            }
+                        },
+                    },
+                }
+            )
+
+    passes.sort(key=lambda p: p["rise"])
+    station_packet = {
+        "id": "station",
+        "name": f"{station.name} ground station",
+        "description": f"<p>{station.lat_deg:.4f}° N, {station.lon_deg:.4f}° E, "
+        f"{station.height_km * 1000:.0f} m. Satellites count as visible above "
+        f"{ELEVATION_MASK_DEG:.0f}° elevation.</p>",
+        "position": {
+            "cartographicDegrees": [
+                station.lon_deg,
+                station.lat_deg,
+                station.height_km * 1000,
+            ]
+        },
+        "point": {
+            "pixelSize": 9,
+            "color": {"rgba": WHITE},
+            "outlineColor": {"rgba": BLACK},
+            "outlineWidth": 2,
+        },
+        "label": {
+            "text": station.name,
+            "font": "600 13px sans-serif",
+            "fillColor": {"rgba": WHITE},
+            "outlineColor": {"rgba": BLACK},
+            "outlineWidth": 3,
+            "style": "FILL_AND_OUTLINE",
+            "horizontalOrigin": "LEFT",
+            "pixelOffset": {"cartesian2": [10, 0]},
+        },
+        "properties": {
+            "maskDeg": ELEVATION_MASK_DEG,
+            "passes": json.dumps(passes, separators=(",", ":")),
+        },
+    }
+    return [station_packet, *packets]
+
+
+def build_czml(station: Station = BELGRADE) -> list[dict]:
+    sats = load_elements()
     packets = [document_packet()]
-    for sat in load_elements():
+    for sat in sats:
         rgb = style.hex_to_rgb(style.sat_color(sat, dark=True))  # dark globe
         packets.extend(satellite_packets(sat, rgb))
+    packets.extend(station_packets(station, sats))
     return packets
 
 
