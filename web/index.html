@@ -38,9 +38,12 @@
       </section>
 
       <section id="station-section" hidden>
+        <h2>Ground station</h2>
+        <div class="segmented" id="station-picker" role="group" aria-label="Ground station"></div>
         <h2 id="station-title">Passes</h2>
         <p class="hint" id="station-hint"></p>
         <ul id="pass-list"></ul>
+        <p class="hint" id="no-passes" hidden>No satellite rises above the mask today.</p>
         <label class="check"
           ><input type="checkbox" id="show-station" checked /> Station, LEO visibility
           ring and links</label

@@ -34,8 +34,21 @@ class Station:
     lon_deg: float
     height_km: float = 0.0
 
+    @property
+    def slug(self) -> str:
+        """Lower-case id for CZML packets and URLs, e.g. 'belgrade'."""
+        return "-".join(self.name.lower().split())
+
 
 BELGRADE = Station("Belgrade", 44.8178, 20.4569, 0.117)
+# Stations offered in the 3D viewer: Europe, East Asia (where QZS-2 is high),
+# the southern hemisphere and the equator.
+STATIONS = (
+    BELGRADE,
+    Station("Tokyo", 35.6762, 139.6503, 0.040),
+    Station("Sydney", -33.8688, 151.2093, 0.058),
+    Station("Quito", -0.1807, -78.4678, 2.850),
+)
 
 
 @dataclass
