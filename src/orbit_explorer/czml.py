@@ -251,10 +251,6 @@ def pass_interval(rise_s: float, set_s: float) -> str:
     return f"{at(rise_s)}/{at(set_s)}"
 
 
-def hemisphere(value: float, positive: str, negative: str) -> str:
-    return f"{abs(value):.4f}° {positive if value >= 0 else negative}"
-
-
 def station_packets(
     station: Station, sats: list[dict], sgp4_ecef: dict[int, np.ndarray], order: int
 ) -> list[dict]:
@@ -344,8 +340,7 @@ def station_packets(
     station_packet = {
         "id": f"station-{st}",
         "name": f"{station.name} ground station",
-        "description": f"<p>{hemisphere(station.lat_deg, 'N', 'S')}, "
-        f"{hemisphere(station.lon_deg, 'E', 'W')}, "
+        "description": f"<p>{station.coordinates}, "
         f"{station.height_km * 1000:.0f} m. Satellites count as visible above "
         f"{ELEVATION_MASK_DEG:.0f}° elevation.</p>",
         "position": {

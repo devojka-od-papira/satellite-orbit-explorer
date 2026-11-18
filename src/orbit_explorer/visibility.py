@@ -5,11 +5,18 @@ much the two-body Kepler model shifts each rise and set. Both are rotated to
 ECEF with the same GMST angle and then into the station's local East-North-Up
 frame, which gives azimuth (clockwise from north), elevation and range.
 
-    python -m orbit_explorer.visibility                      # Belgrade
-    python -m orbit_explorer.visibility --name Tokyo --lat 35.68 --lon 139.77
+    python -m orbit_explorer.visibility                    # Belgrade
+    python -m orbit_explorer.visibility --station tokyo    # or sydney, quito
+    python -m orbit_explorer.visibility --name "Novi Sad" --lat 45.25 --lon 19.84
+
+Belgrade writes outputs/visibility.txt, visibility_elevation.png and
+visibility_skyplot.png; the viewer's other stations add their name, e.g.
+visibility_tokyo.txt, and your own station is marked custom, e.g.
+visibility_custom-novi-sad.txt.
 """
 
 import argparse
+import re
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
@@ -36,8 +43,20 @@ class Station:
 
     @property
     def slug(self) -> str:
-        """Lower-case id for CZML packets and URLs, e.g. 'belgrade'."""
-        return "-".join(self.name.lower().split())
+        """Lower-case id for CZML packets, URLs and file names, e.g. 'novi-sad'.
+        Only letters, digits and single hyphens between them, so it is safe in
+        a path; empty if the name has no letter or digit."""
+        kept = re.sub(r"[^\w\s-]", "", self.name.lower()).replace("_", " ")
+        return re.sub(r"[\s-]+", "-", kept).strip("-")
+
+    @property
+    def coordinates(self) -> str:
+        """E.g. '33.8688° S, 151.2093° E'."""
+
+        def hemi(value: float, positive: str, negative: str) -> str:
+            return f"{abs(value):.4f}° {positive if value >= 0 else negative}"
+
+        return f"{hemi(self.lat_deg, 'N', 'S')}, {hemi(self.lon_deg, 'E', 'W')}"
 
 
 BELGRADE = Station("Belgrade", 44.8178, 20.4569, 0.117)
@@ -49,7 +68,8 @@ STATIONS = (
     Station("Sydney", -33.8688, 151.2093, 0.058),
     Station("Quito", -0.1807, -78.4678, 2.850),
 )
-assert len({s.slug for s in STATIONS}) == len(STATIONS), "station slugs must differ"
+STATIONS_BY_SLUG = {s.slug: s for s in STATIONS}
+assert len(STATIONS_BY_SLUG) == len(STATIONS), "station slugs must differ"
 
 
 @dataclass
@@ -152,7 +172,7 @@ def clock(seconds: float) -> str:
 
 def build_summary(station: Station = BELGRADE) -> str:
     t = time_grid_s()
-    where = f"{station.lat_deg:.4f}° N, {station.lon_deg:.4f}° E"
+    where = station.coordinates
     window = f"{START:%Y-%m-%d %H:%M} UTC + {SPAN_S // 3600} h"
     mask = f"elevation mask {ELEVATION_MASK_DEG:.0f}°"
     lines = [
@@ -222,6 +242,39 @@ def with_mask_crossings(
     return np.insert(x, i + 1, x_cross), np.insert(el, i + 1, np.full(len(i), mask))
 
 
+def mask_label_hour(
+    h: np.ndarray,
+    elevations: list[np.ndarray],
+    width_h: float,
+    preferred_h: float = 6.2,
+    margin_h: float = 0.3,
+) -> float:
+    """Where the "10° mask" label starts on the mask line.
+
+    The label's box runs from just below the line to about 12° above it and is
+    ``width_h`` hours wide (measured from the drawn text), plus ``margin_h`` on
+    each side. Takes the clear spot nearest ``preferred_h``; if no spot is
+    clear, the one that the fewest curve samples pass through.
+    """
+    band = np.zeros_like(h, dtype=bool)
+    for el in elevations:
+        band |= (el > ELEVATION_MASK_DEG - 2) & (el < ELEVATION_MASK_DEG + 12)
+    starts = np.round(np.arange(0.2, h[-1] - width_h, 0.1), 1)
+    blocked = [
+        np.count_nonzero(band[(h >= x - margin_h) & (h <= x + width_h + margin_h)])
+        for x in starts
+    ]
+    best = min(zip(blocked, np.abs(starts - preferred_h), starts, strict=True))
+    return float(best[2])
+
+
+def text_width(ax, text) -> float:
+    """Width of a drawn text in the axes' x data units (hours here)."""
+    box = text.get_window_extent(ax.figure.canvas.get_renderer())
+    (x0, _), (x1, _) = ax.transData.inverted().transform([(box.x0, 0), (box.x1, 0)])
+    return x1 - x0
+
+
 @style.styled
 def plot_elevation(path: Path, station: Station = BELGRADE) -> None:
     """Elevation over the day; full colour only where the station sees it."""
@@ -237,24 +290,28 @@ def plot_elevation(path: Path, station: Station = BELGRADE) -> None:
         linestyle=(0, (3, 3)),
         zorder=1,
     )
+    elevations = []
     for sat in sats:
         color = style.sat_color(sat)
         _, el, _ = satellite_look_angles(sat, t, station)
+        elevations.append(el)
         ax.plot(h, el, color=color, linewidth=1.2, alpha=0.3, zorder=2)
         # bright exactly where find_passes counts the satellite as visible
         h_x, el_x = with_mask_crossings(h, el, ELEVATION_MASK_DEG)
         visible = np.where(el_x >= ELEVATION_MASK_DEG, el_x, np.nan)
         ax.plot(h_x, visible, color=color, linewidth=2.5, zorder=3)
-    ax.annotate(
+    style.time_axis(ax, SPAN_S / 3600)
+    ax.set_ylim(-90, 90)
+    label = ax.annotate(
         f"{ELEVATION_MASK_DEG:.0f}° mask",
-        xy=(6.2, ELEVATION_MASK_DEG),
+        xy=(0, ELEVATION_MASK_DEG),
         xytext=(0, 4),
         textcoords="offset points",
         color=style.SECONDARY,
         fontsize=10,
     )
-    style.time_axis(ax, SPAN_S / 3600)
-    ax.set_ylim(-90, 90)
+    # placed once the axes limits are set, so its width in hours is right
+    label.xy = (mask_label_hour(h, elevations, text_width(ax, label)), label.xy[1])
     ax.set_yticks([-90, -45, 0, 45, 90], ["−90°", "−45°", "0°", "45°", "90°"])
     ax.yaxis.tick_right()
     style.header(
@@ -287,9 +344,12 @@ def plot_skyplot(path: Path, station: Station = BELGRADE) -> None:
         linewidth=0,
         zorder=0,
     )
-    for sat in sats:
+    never_up = []  # legend indices of satellites with no track in this sky
+    for i, sat in enumerate(sats):
         color = style.sat_color(sat)
         az, el, _ = satellite_look_angles(sat, t, station)
+        if not (el >= 0).any():
+            never_up.append(i)
         r = np.where(el >= 0, 90 - el, np.nan)  # hide below the horizon
         theta = np.radians(az)
         jumps = np.nonzero(np.abs(np.diff(r)) > 5)[0] + 1  # don't join separate passes
@@ -325,41 +385,117 @@ def plot_skyplot(path: Path, station: Station = BELGRADE) -> None:
         caption="Visibility",
         pad=28,  # clear of the N label
     )
-    style.dot_legend(
+    legend_args = (
         ax,
-        [style.short_name(s) for s in sats],
+        [
+            style.short_name(s) + (" · below horizon" if i in never_up else "")
+            for i, s in enumerate(sats)
+        ],
         [style.sat_color(s) for s in sats],
-        bbox_to_anchor=(0, -0.07),  # below the S label
-        bbox_transform=ax.transAxes,
     )
+    legend_options = {
+        "dimmed": never_up,
+        "bbox_to_anchor": (0, -0.07),  # below the S label
+        "bbox_transform": ax.transAxes,
+    }
+    legend = style.dot_legend(*legend_args, **legend_options)
+    renderer = fig.canvas.get_renderer()
+    if legend.get_window_extent(renderer).width > ax.get_window_extent(renderer).width:
+        legend.remove()  # the "below horizon" notes made one row too wide
+        style.dot_legend(*legend_args, ncol=2, **legend_options)
     fig.savefig(path)
     plt.close(fig)
 
 
+# The options that describe your own station: (name, type, help).
+CUSTOM_OPTIONS = (
+    ("name", str, f"default {BELGRADE.name}"),
+    ("lat", float, "deg N (negative for S)"),
+    ("lon", float, "deg E (negative for W)"),
+    ("height", float, "metres above the WGS84 ellipsoid"),
+)
+# Lowest and highest ground: the Dead Sea shore (about -430 m) to above Everest.
+HEIGHT_RANGE_M = (-500.0, 9000.0)
+
+
 def parse_station(argv: list[str] | None = None) -> Station:
+    """One of the viewer's stations (--station), or your own (--lat/--lon).
+    Belgrade when neither is given."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--name", default=BELGRADE.name)
-    parser.add_argument("--lat", type=float, default=BELGRADE.lat_deg, help="deg N")
-    parser.add_argument("--lon", type=float, default=BELGRADE.lon_deg, help="deg E")
     parser.add_argument(
-        "--height",
-        type=float,
-        default=BELGRADE.height_km * 1000,
-        help="metres above the WGS84 ellipsoid",
+        "--station",
+        type=str.lower,
+        choices=list(STATIONS_BY_SLUG),
+        help=f"one of the 3D viewer's stations (default {BELGRADE.slug})",
     )
+    custom = parser.add_argument_group(
+        "your own station", "instead of --station; Belgrade's values fill any gaps"
+    )
+    for option, kind, text in CUSTOM_OPTIONS:
+        custom.add_argument(f"--{option}", type=kind, help=text)
     args = parser.parse_args(argv)
-    return Station(args.name, args.lat, args.lon, args.height / 1000)
+    given = [o for o, _, _ in CUSTOM_OPTIONS if getattr(args, o) is not None]
+    if args.station:
+        if given:
+            parser.error(
+                f"--station can't be combined with --{', --'.join(given)}; "
+                "pick a station or describe your own"
+            )
+        return STATIONS_BY_SLUG[args.station]
+    if not given:
+        return BELGRADE
+    station = Station(
+        BELGRADE.name if args.name is None else args.name,
+        BELGRADE.lat_deg if args.lat is None else args.lat,
+        BELGRADE.lon_deg if args.lon is None else args.lon,
+        BELGRADE.height_km if args.height is None else args.height / 1000,
+    )
+    if not -90 <= station.lat_deg <= 90:
+        parser.error(f"--lat must be between -90 and 90, not {station.lat_deg:g}")
+    if not -180 <= station.lon_deg <= 180:
+        parser.error(f"--lon must be between -180 and 180, not {station.lon_deg:g}")
+    low, high = HEIGHT_RANGE_M
+    height_m = station.height_km * 1000
+    if not low <= height_m <= high:  # also refuses nan and inf
+        parser.error(
+            f"--height must be between {low:g} and {high:g} m, not {height_m:g}"
+        )
+    if not station.slug:
+        parser.error("--name needs at least one letter or digit")
+    return station
+
+
+def output_paths(station: Station, output_dir: Path = OUTPUT_DIR) -> dict[str, Path]:
+    """Belgrade keeps the plain names (the README images and the daily PR use
+    them); the viewer's other stations add their slug, and your own station is
+    marked custom, so it never overwrites a viewer station of the same name."""
+    if station == BELGRADE:
+        stem = "visibility"
+    elif STATIONS_BY_SLUG.get(station.slug) == station:
+        stem = f"visibility_{station.slug}"
+    else:
+        stem = f"visibility_custom-{station.slug}"
+    return {
+        "summary": output_dir / f"{stem}.txt",
+        "elevation": output_dir / f"{stem}_elevation.png",
+        "skyplot": output_dir / f"{stem}_skyplot.png",
+    }
+
+
+def main(
+    argv: list[str] | None = None, output_dir: Path = OUTPUT_DIR
+) -> dict[str, Path]:
+    station = parse_station(argv)
+    paths = output_paths(station, output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    summary = build_summary(station)
+    print(summary)
+    paths["summary"].write_text(summary)
+    plot_elevation(paths["elevation"], station)
+    plot_skyplot(paths["skyplot"], station)
+    print("Written " + ", ".join(str(p) for p in paths.values()))
+    return paths
 
 
 if __name__ == "__main__":
-    station = parse_station()
-    OUTPUT_DIR.mkdir(exist_ok=True)
-    summary = build_summary(station)
-    print(summary)
-    (OUTPUT_DIR / "visibility.txt").write_text(summary)
-    plot_elevation(OUTPUT_DIR / "visibility_elevation.png", station)
-    plot_skyplot(OUTPUT_DIR / "visibility_skyplot.png", station)
-    print(
-        "Written outputs/visibility.txt, visibility_elevation.png "
-        "and visibility_skyplot.png"
-    )
+    main()

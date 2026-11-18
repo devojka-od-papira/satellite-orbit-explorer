@@ -106,6 +106,16 @@ Belgrade on 2026-11-17:
 
 ![Sky plot from Belgrade](docs/images/visibility_skyplot.png)
 
+The same script works for the 3D viewer's other stations: `--station tokyo`,
+`sydney` or `quito`. Their files get the station's name, e.g.
+`outputs/visibility_tokyo_skyplot.png`, and your own station (`--lat`, `--lon`)
+is marked custom (`visibility_custom-novi-sad.txt`), so no run overwrites
+another. A satellite that never rises is faded in the sky plot's legend. From
+Tokyo, QZS-2 traces its figure eight high in the southern sky and stays above
+10° in one pass of about 19 hours:
+
+![Sky plot from Tokyo](docs/images/visibility_tokyo_skyplot.png)
+
 ## Run it
     pip install -e .
     python -m orbit_explorer.report
@@ -113,7 +123,9 @@ Belgrade on 2026-11-17:
     python -m orbit_explorer.kml
     python -m orbit_explorer.czml
     python -m orbit_explorer.sgp4_compare
-    python -m orbit_explorer.visibility    # --name, --lat, --lon, --height for another station
+    python -m orbit_explorer.visibility    # Belgrade
+    python -m orbit_explorer.visibility --station tokyo    # or sydney, quito
+    python -m orbit_explorer.visibility --name "Novi Sad" --lat 45.25 --lon 19.84 --height 80
 
 ## 3D viewer
 A static CesiumJS page in `web/` that loads `orbits.czml`. Its interface
@@ -122,7 +134,7 @@ elsewhere), translucent panels, grouped lists, segmented controls and switches.
 It also shows a ground station: Belgrade, Tokyo, Sydney or Quito. A link
 ending in `#tokyo`, `#sydney` or `#quito` opens on that station. Tokyo shows
 why QZSS is a regional system: QZS-2, never above Belgrade's horizon, stays
-above 10° there for about 19 hours. For the chosen station the viewer shows:
+above 10° there in one pass of about 19 hours. For the chosen station the viewer shows:
 - each satellite's live elevation and azimuth;
 - the day's passes, where a click jumps to that pass (short LEO passes play
   at 30× so you can watch them);
