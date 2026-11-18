@@ -128,8 +128,10 @@ function showWholeEarth() {
 
 // ---------- Satellite list ----------
 
-function shortName(name) {
-  return name.split(" (")[0];
+function shortName(entity, time) {
+  // The globe label carries the short name from style.py (e.g. "GALILEO 29"),
+  // the same one the pass list uses.
+  return entity.label?.text?.getValue(time) ?? entity.name.split(" (")[0];
 }
 
 function viewFromBehind(position) {
@@ -201,7 +203,7 @@ function addSatellite(ds, entity, start) {
     <span class="badge">${ORBIT_CLASS[norad] ?? ""}</span>
     <span class="sat-live">&nbsp;</span>
     <span class="sat-sky" hidden></span>`;
-  button.querySelector(".sat-name").textContent = shortName(entity.name);
+  button.querySelector(".sat-name").textContent = shortName(entity, start);
 
   const li = document.createElement("li");
   li.append(button);
@@ -426,8 +428,60 @@ function updateLive(clock) {
   if (station) updatePassRows(clock.currentTime);
 }
 
+// ---------- Info box ----------
+
+// The info box renders the CZML description inside an iframe with Cesium's own
+// stylesheet, which sets its own font on .cesium-infoBox-description. Restyle
+// it as an Apple-style list, with the colours and font taken from style.css.
+function infoBoxCss() {
+  const root = getComputedStyle(document.documentElement);
+  const v = (name) => root.getPropertyValue(name).trim();
+  return `
+    html body, html body .cesium-infoBox-description {
+      margin: 0;
+      font: 13px/1.38 ${root.fontFamily};
+      color: ${v("--label")};
+      -webkit-font-smoothing: antialiased;
+    }
+    html body .cesium-infoBox-description { padding: 6px 14px 12px; }
+    body table { width: 100%; border-collapse: collapse; }
+    body th, body td { padding: 6px 0; border: 0; background: none; }
+    body th { text-align: left; font-weight: 400; color: ${v("--secondary")}; }
+    body td { text-align: right; font-variant-numeric: tabular-nums; }
+    body tr + tr th, body tr + tr td { border-top: 0.5px solid ${v("--hairline")}; }
+    body p { margin: 4px 0; }
+  `;
+}
+
+function styleInfoBox() {
+  const box = viewer.infoBox;
+  if (!box) return;
+  box.container.querySelector(".cesium-infoBox")?.classList.add("material");
+  const frame = box.frame;
+  const inject = () => {
+    const doc = frame.contentDocument;
+    if (!doc?.head || doc.getElementById("apple-style")) return;
+    const style = doc.createElement("style");
+    style.id = "apple-style";
+    style.textContent = infoBoxCss();
+    doc.head.append(style);
+  };
+  frame.addEventListener("load", inject);
+  inject(); // the blank frame may have loaded already
+}
+
+async function fontsReady() {
+  // Cesium draws labels onto a canvas and caches them by font, so make sure
+  // Inter (used where the system font isn't SF) has loaded before the CZML.
+  // Never wait more than 3 s for it.
+  const timeout = new Promise((resolve) => setTimeout(resolve, 3000));
+  const fonts = ["500 13px Inter", "600 13px Inter"].map((f) => document.fonts.load(f));
+  await Promise.race([Promise.all(fonts), timeout]).catch(() => {});
+}
+
 // ---------- Wiring ----------
 
+styleInfoBox();
 ui.fixed.addEventListener("click", () => setFrame("fixed"));
 ui.inertial.addEventListener("click", () => setFrame("inertial"));
 ui.freeCamera.addEventListener("click", showWholeEarth);
@@ -451,6 +505,7 @@ async function main() {
     destination: Cesium.Cartesian3.fromDegrees(60, 15, WHOLE_EARTH_HEIGHT_M),
   });
   try {
+    await fontsReady();
     const ds = await Cesium.CzmlDataSource.load("orbits.czml");
     await viewer.dataSources.add(ds); // the viewer adopts the CZML clock
     defaultMultiplier = viewer.clock.multiplier;
