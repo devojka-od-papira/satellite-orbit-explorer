@@ -244,3 +244,12 @@ def test_pass_list_uses_the_short_names(czml):
     }
     for p in passes:
         assert p["name"] == labels[p["norad"]]
+
+
+def test_station_packets_reject_positions_on_another_grid():
+    from orbit_explorer.czml import station_packets
+
+    sat = SATS[0]
+    coarse = {sat["NORAD_CAT_ID"]: np.zeros((len(T), 3))}  # the CZML grid, not 5 s
+    with pytest.raises(ValueError, match="full time grid"):
+        station_packets(BELGRADE, [sat], coarse, 0)

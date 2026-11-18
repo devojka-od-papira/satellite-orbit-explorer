@@ -293,6 +293,13 @@ function addPassRow(pass) {
   return { pass, row };
 }
 
+// "ring-new-york-64541" belongs to station "new-york", not "new": compare the
+// whole slug between the kind and the NORAD number, not just a prefix.
+function ownedBy(id, kind, slug) {
+  const m = id.match(/^(ring|link)-(.+)-(\d+)$/);
+  return m !== null && m[1] === kind && m[2] === slug;
+}
+
 function readStation(ds, entity, start) {
   const props = entity.properties.getValue(start);
   const position = entity.position.getValue(start);
@@ -311,8 +318,8 @@ function readStation(ds, entity, start) {
       Cesium.Transforms.eastNorthUpToFixedFrame(position),
       new Cesium.Matrix4(),
     ),
-    rings: ds.entities.values.filter((e) => e.id.startsWith(`ring-${slug}-`)),
-    links: ds.entities.values.filter((e) => e.id.startsWith(`link-${slug}-`)),
+    rings: ds.entities.values.filter((e) => ownedBy(e.id, "ring", slug)),
+    links: ds.entities.values.filter((e) => ownedBy(e.id, "link", slug)),
     passes: JSON.parse(props.passes).map((p) => ({
       ...p,
       riseJd: Cesium.JulianDate.fromIso8601(p.rise),
@@ -339,12 +346,35 @@ function setupStations(ds, start) {
   for (const s of satellites) s.sky.hidden = false;
   ui.stationSection.hidden = false;
   // A link like …/#tokyo opens on that station.
-  const fromHash = location.hash.slice(1).toLowerCase();
-  selectStation(stations.some((s) => s.slug === fromHash) ? fromHash : stations[0].slug);
+  selectStation(stationFromHash() ?? stations[0].slug);
+  // Editing the hash in an open page (or following a #quito link) switches too.
+  window.addEventListener("hashchange", () => {
+    const slug = stationFromHash() ?? stations[0].slug;
+    if (slug !== station.slug) selectStation(slug);
+  });
+}
+
+function stationFromHash() {
+  const slug = location.hash.slice(1).toLowerCase();
+  return stations.some((s) => s.slug === slug) ? slug : undefined;
 }
 
 function selectStation(slug) {
+  if (station?.slug === slug) return; // already shown: nothing to rebuild
+  const previous = station;
   station = stations.find((s) => s.slug === slug);
+  if (previous) {
+    // Don't leave the old station's marker or ring in the info box, or its
+    // slowed-down pass running at 30x.
+    const old = [previous.entity, ...previous.rings, ...previous.links];
+    if (old.includes(viewer.selectedEntity)) viewer.selectedEntity = undefined;
+    if (slowPass) {
+      if (viewer.clock.multiplier === SHORT_PASS_MULTIPLIER) {
+        viewer.clock.multiplier = defaultMultiplier;
+      }
+      slowPass = undefined;
+    }
+  }
   for (const st of stations) st.button.setAttribute("aria-pressed", String(st === station));
   ui.stationTitle.textContent = `Passes over ${station.name}`;
   ui.stationHint.textContent =
@@ -354,7 +384,8 @@ function selectStation(slug) {
   passRows = station.passes.map(addPassRow);
   ui.noPasses.hidden = passRows.length > 0;
   if (location.hash.slice(1) !== slug) {
-    history.replaceState(null, "", slug === stations[0].slug ? location.pathname : `#${slug}`);
+    const hash = slug === stations[0].slug ? "" : `#${slug}`;
+    history.replaceState(null, "", location.pathname + location.search + hash);
   }
   applyStationVisibility(); // also covers a checkbox the browser restored
   lastLiveUpdate = 0; // refresh the sky lines now, even with the clock paused

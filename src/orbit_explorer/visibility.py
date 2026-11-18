@@ -49,6 +49,7 @@ STATIONS = (
     Station("Sydney", -33.8688, 151.2093, 0.058),
     Station("Quito", -0.1807, -78.4678, 2.850),
 )
+assert len({s.slug for s in STATIONS}) == len(STATIONS), "station slugs must differ"
 
 
 @dataclass

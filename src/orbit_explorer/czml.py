@@ -114,9 +114,10 @@ def document_packet() -> dict:
 
 
 def satellite_packets(
-    sat: dict, rgb: tuple[int, int, int], pos_sgp4: np.ndarray | None = None
+    sat: dict, rgb: tuple[int, int, int], pos_sgp4: np.ndarray
 ) -> list[dict]:
-    """``pos_sgp4``: SGP4 TEME positions on the CZML grid, if already known."""
+    """``pos_sgp4``: SGP4 TEME positions on the CZML grid (every CZML_STEP-th
+    point), from the one SGP4 run in build_czml."""
     norad = sat["NORAD_CAT_ID"]
     name = sat["OBJECT_NAME"]
     period_s = period_hours(mean_motion_rad_s(sat["MEAN_MOTION"])) * 3600
@@ -126,8 +127,6 @@ def satellite_packets(
     pos_eci, speed = propagate_eci(sat, t)
     pos_ecef = eci_to_ecef(pos_eci, theta)
     lat, lon, _ = ecef_to_geodetic(pos_ecef)
-    if pos_sgp4 is None:
-        pos_sgp4, _ = propagate_sgp4(sat, t)
 
     def position(frame: str, pos_km: np.ndarray) -> dict:
         return {
@@ -262,6 +261,12 @@ def station_packets(
     """``sgp4_ecef``: each satellite's SGP4 ECEF positions on the full 5 s grid,
     propagated once and shared by all stations."""
     t = time_grid_s()
+    for norad, pos in sgp4_ecef.items():
+        if pos.shape != (len(t), 3):
+            raise ValueError(
+                f"SGP4 positions for {norad} have shape {pos.shape}; expected "
+                f"{(len(t), 3)}, one per point of the full time grid"
+            )
     st = station.slug
     passes, packets = [], []
     for sat in sats:
