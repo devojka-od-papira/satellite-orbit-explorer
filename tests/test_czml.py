@@ -40,13 +40,18 @@ def test_document_packet_comes_first(czml):
     )
 
 
-def test_five_packets_per_satellite_with_unique_ids(czml):
+def test_packets_are_complete_with_unique_ids(czml):
+    """Document, five packets per satellite, the station, its rings and links,
+    and nothing else."""
     ids = [p["id"] for p in czml]
+    assert len(set(ids)) == len(ids)
     for sat in SATS:
         norad = sat["NORAD_CAT_ID"]
         for prefix in ("sat", "track", "orbit", "sgp4", "sgp4orbit"):
             assert f"{prefix}-{norad}" in ids
-    assert len(set(ids)) == len(ids)
+    rings = [i for i in ids if i.startswith("ring-")]
+    links = [i for i in ids if i.startswith("link-")]
+    assert len(ids) == 1 + 5 * len(SATS) + 1 + len(rings) + len(links)
 
 
 def test_is_plain_json(czml):
@@ -179,12 +184,13 @@ def test_visibility_ring_only_for_leo(czml):
 
 
 def test_visibility_radius():
-    # straight overhead at the mask of 90°: radius 0; horizon (0°) for 500 km
-    assert visibility_radius_deg(500, 90) == pytest.approx(0, abs=1e-9)
-    assert visibility_radius_deg(500, 0) == pytest.approx(
-        np.degrees(np.arccos(6371 / 6871)), rel=1e-9
+    r = 6378.137
+    # a 90° mask leaves only the point straight overhead; 0° is the horizon
+    assert visibility_radius_deg(r + 500, 90) == pytest.approx(0, abs=1e-9)
+    assert visibility_radius_deg(r + 500, 0) == pytest.approx(
+        np.degrees(np.arccos(r / (r + 500))), rel=1e-9
     )
     # PULSAR-0 at ~505 km and a 10° mask: about 14° of arc, ~1,570 km
-    assert visibility_radius_deg(505, 10) * np.pi / 180 * 6371 == pytest.approx(
+    assert np.radians(visibility_radius_deg(r + 505, 10)) * r == pytest.approx(
         1570, abs=20
     )

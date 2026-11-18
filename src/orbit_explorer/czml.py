@@ -29,6 +29,7 @@ import numpy as np
 
 from orbit_explorer import style
 from orbit_explorer.elements import (
+    R_EARTH_KM,
     load_elements,
     mean_motion_rad_s,
     perigee_apogee_altitude_km,
@@ -48,7 +49,6 @@ from orbit_explorer.visibility import (
 
 OUTPUT_PATH = Path("outputs/orbits.czml")
 CZML_STEP = 12  # keep every 12th epoch (60 s), plenty for Lagrange interpolation
-EARTH_RADIUS_KM = 6371.0
 LEO_MAX_ALTITUDE_KM = 2000.0
 WHITE = [255, 255, 255, 255]
 BLACK = [0, 0, 0, 255]
@@ -213,11 +213,12 @@ def satellite_packets(sat: dict, rgb: tuple[int, int, int]) -> list[dict]:
     ]
 
 
-def visibility_radius_deg(altitude_km: float, mask_deg: float) -> float:
+def visibility_radius_deg(orbit_radius_km: float, mask_deg: float) -> float:
     """Earth central angle from the station to the sub-satellite point at which
-    a satellite at this altitude sits exactly on the elevation mask."""
+    a satellite at this distance from Earth's centre sits exactly on the
+    elevation mask (spherical Earth of radius R_EARTH_KM, as for altitudes)."""
     el = np.radians(mask_deg)
-    ratio = EARTH_RADIUS_KM * np.cos(el) / (EARTH_RADIUS_KM + altitude_km)
+    ratio = R_EARTH_KM * np.cos(el) / orbit_radius_km
     return float(np.degrees(np.arccos(ratio) - el))
 
 
@@ -282,16 +283,16 @@ def station_packets(station: Station, sats: list[dict]) -> list[dict]:
             )
 
         a = semi_major_axis_km(mean_motion_rad_s(sat["MEAN_MOTION"]))
-        perigee, apogee = perigee_apogee_altitude_km(a, sat["ECCENTRICITY"])
+        _, apogee = perigee_apogee_altitude_km(a, sat["ECCENTRICITY"])
         if apogee < LEO_MAX_ALTITUDE_KM:
-            radius = visibility_radius_deg((perigee + apogee) / 2, ELEVATION_MASK_DEG)
+            radius = visibility_radius_deg(a, ELEVATION_MASK_DEG)
             packets.append(
                 {
                     "id": f"ring-{norad}",
                     "name": f"Where {style.short_name(sat)} is visible from "
                     f"{station.name}",
                     "description": f"<p>While {style.short_name(sat)} is inside "
-                    f"this circle (radius {radius * np.pi / 180 * EARTH_RADIUS_KM:.0f}"
+                    f"this circle (radius {np.radians(radius) * R_EARTH_KM:.0f}"
                     f" km), it is more than {ELEVATION_MASK_DEG:.0f}° above "
                     f"{station.name}'s horizon.</p>",
                     "polyline": {
