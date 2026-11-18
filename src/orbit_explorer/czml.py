@@ -148,8 +148,8 @@ def satellite_packets(sat: dict, rgb: tuple[int, int, int]) -> list[dict]:
                 "outlineWidth": 1,
             },
             "label": {
-                "text": name.split(" (")[0],
-                "font": "13px sans-serif",
+                "text": style.short_name(sat),  # the viewer's panel uses it too
+                "font": "500 13px -apple-system, BlinkMacSystemFont, Inter, sans-serif",
                 "fillColor": {"rgba": rgba(rgb)},
                 "outlineColor": {"rgba": BLACK},  # dark: bright labels
                 "outlineWidth": 2,
@@ -336,7 +336,7 @@ def station_packets(station: Station, sats: list[dict]) -> list[dict]:
         },
         "label": {
             "text": station.name,
-            "font": "600 13px sans-serif",
+            "font": "600 13px -apple-system, BlinkMacSystemFont, Inter, sans-serif",
             "fillColor": {"rgba": WHITE},
             "outlineColor": {"rgba": BLACK},
             "outlineWidth": 3,

@@ -194,3 +194,17 @@ def test_visibility_radius():
     assert np.radians(visibility_radius_deg(r + 505, 10)) * r == pytest.approx(
         1570, abs=20
     )
+
+
+@pytest.mark.parametrize("sat", SATS, ids=lambda s: s["OBJECT_NAME"])
+def test_label_uses_the_short_name(czml, sat):
+    """The globe label, the viewer's satellite list and the pass list all use
+    the short name from style.py (e.g. 'GALILEO 29', not 'GSAT0225')."""
+    from orbit_explorer.style import short_name
+
+    label = packet(czml, f"sat-{sat['NORAD_CAT_ID']}")["label"]["text"]
+    assert label == short_name(sat)
+    names = {
+        p["name"] for p in station_passes(czml) if p["norad"] == sat["NORAD_CAT_ID"]
+    }
+    assert names <= {label}

@@ -116,8 +116,10 @@ Belgrade on 2026-11-17:
     python -m orbit_explorer.visibility    # --name, --lat, --lon, --height for another station
 
 ## 3D viewer
-A static CesiumJS page in `web/` that loads `orbits.czml`. It also shows the
-ground station:
+A static CesiumJS page in `web/` that loads `orbits.czml`. Its interface
+follows Apple's dark design, to match the figures: the system font (Inter
+elsewhere), translucent panels, grouped lists, segmented controls and switches.
+It also shows the ground station:
 - each satellite's live elevation and azimuth from Belgrade;
 - the day's passes, where a click jumps to that pass (short LEO passes play
   at 30× so you can watch them);

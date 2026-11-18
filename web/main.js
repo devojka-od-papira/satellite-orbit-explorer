@@ -128,8 +128,10 @@ function showWholeEarth() {
 
 // ---------- Satellite list ----------
 
-function shortName(name) {
-  return name.split(" (")[0];
+function shortName(entity, time) {
+  // The globe label carries the short name from style.py (e.g. "GALILEO 29"),
+  // the same one the pass list uses.
+  return entity.label?.text?.getValue(time) ?? entity.name.split(" (")[0];
 }
 
 function viewFromBehind(position) {
@@ -201,7 +203,7 @@ function addSatellite(ds, entity, start) {
     <span class="badge">${ORBIT_CLASS[norad] ?? ""}</span>
     <span class="sat-live">&nbsp;</span>
     <span class="sat-sky" hidden></span>`;
-  button.querySelector(".sat-name").textContent = shortName(entity.name);
+  button.querySelector(".sat-name").textContent = shortName(entity, start);
 
   const li = document.createElement("li");
   li.append(button);
@@ -426,8 +428,43 @@ function updateLive(clock) {
   if (station) updatePassRows(clock.currentTime);
 }
 
+// ---------- Info box ----------
+
+// The info box renders the CZML description inside an iframe with Cesium's own
+// stylesheet; restyle its table as an Apple-style list to match the panel.
+const INFO_BOX_CSS = `
+  body {
+    margin: 6px 14px 12px;
+    font: 13px/1.38 -apple-system, BlinkMacSystemFont, Inter, system-ui, sans-serif;
+    color: #f5f5f7;
+    -webkit-font-smoothing: antialiased;
+  }
+  body table { width: 100%; border-collapse: collapse; }
+  body th, body td { padding: 6px 0; border: 0; background: none; }
+  body th { text-align: left; font-weight: 400; color: rgba(235, 235, 245, 0.6); }
+  body td { text-align: right; font-variant-numeric: tabular-nums; }
+  body tr + tr th, body tr + tr td { border-top: 0.5px solid rgba(84, 84, 88, 0.6); }
+  body p { margin: 4px 0; color: rgba(235, 235, 245, 0.8); }
+`;
+
+function styleInfoBox() {
+  const frame = viewer.infoBox?.frame;
+  if (!frame) return;
+  const inject = () => {
+    const doc = frame.contentDocument;
+    if (!doc?.head || doc.getElementById("apple-style")) return;
+    const style = doc.createElement("style");
+    style.id = "apple-style";
+    style.textContent = INFO_BOX_CSS;
+    doc.head.append(style);
+  };
+  frame.addEventListener("load", inject);
+  inject(); // the blank frame may have loaded already
+}
+
 // ---------- Wiring ----------
 
+styleInfoBox();
 ui.fixed.addEventListener("click", () => setFrame("fixed"));
 ui.inertial.addEventListener("click", () => setFrame("inertial"));
 ui.freeCamera.addEventListener("click", showWholeEarth);

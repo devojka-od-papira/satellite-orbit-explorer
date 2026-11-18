@@ -1,11 +1,27 @@
+/* Apple-style dark UI over the globe: system font, translucent "material"
+   panels, grouped lists, segmented controls and switches. Colours are Apple's
+   dark-mode system colours, the same family as the satellite colours. */
 :root {
-  --panel-bg: rgba(20, 24, 31, 0.88);
-  --panel-border: rgba(255, 255, 255, 0.12);
-  --text: #e8eaed;
-  --muted: #9aa0a6;
-  --accent: #8ab4f8;
-  --visible: #30d158; /* Apple system green (dark) */
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --material: rgba(28, 28, 30, 0.72); /* systemGray6 (dark), translucent */
+  --material-strong: rgba(28, 28, 30, 0.9);
+  --hairline: rgba(84, 84, 88, 0.6); /* separator (dark) */
+  --fill: rgba(118, 118, 128, 0.24); /* tertiarySystemFill (dark) */
+  --fill-hover: rgba(118, 118, 128, 0.32);
+  --grouped: rgba(255, 255, 255, 0.06);
+  --label: #f5f5f7;
+  --secondary: rgba(235, 235, 245, 0.6); /* secondaryLabel (dark) */
+  --tertiary: rgba(235, 235, 245, 0.3);
+  --accent: #0a84ff; /* systemBlue (dark) */
+  --accent-tint: rgba(10, 132, 255, 0.18);
+  --visible: #30d158; /* systemGreen (dark) */
+  --visible-tint: rgba(48, 209, 88, 0.14);
+  --selected-segment: #636366; /* systemGray2 (dark) */
+  --radius: 14px;
+  --radius-inner: 10px;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, system-ui,
+    "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 html,
@@ -14,7 +30,7 @@ body {
   height: 100%;
   overflow: hidden;
   background: #000;
-  color: var(--text);
+  color: var(--label);
 }
 
 #globe {
@@ -22,109 +38,167 @@ body {
   inset: 0;
 }
 
+.material {
+  background: var(--material);
+  border: 0.5px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
+  -webkit-backdrop-filter: saturate(180%) blur(24px);
+  backdrop-filter: saturate(180%) blur(24px);
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .material {
+    background: var(--material-strong);
+  }
+}
+
 #panel {
   position: absolute;
   top: 12px;
   left: 12px;
-  width: 300px;
+  width: 316px;
   max-height: calc(100% - 140px);
   overflow-y: auto;
-  padding: 16px;
+  padding: 18px 16px 14px;
   box-sizing: border-box;
-  background: var(--panel-bg);
-  border: 1px solid var(--panel-border);
-  border-radius: 10px;
+  border-radius: var(--radius);
   font-size: 13px;
-  line-height: 1.4;
-  backdrop-filter: blur(6px);
+  line-height: 1.38;
+  letter-spacing: -0.005em;
+  scrollbar-width: thin;
+  scrollbar-color: var(--tertiary) transparent;
 }
 
 h1 {
   margin: 0 0 4px;
-  font-size: 17px;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
 
 h2 {
-  margin: 16px 0 6px;
+  margin: 20px 4px 6px;
   font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--secondary);
 }
 
 .subtitle,
 .hint {
   margin: 0;
-  color: var(--muted);
+  color: var(--secondary);
 }
 
 .hint {
-  margin-bottom: 8px;
+  margin: 6px 4px 8px;
   font-size: 12px;
 }
 
-#sat-list {
+button {
+  font: inherit;
+  color: inherit;
+}
+
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---------- Grouped lists: satellites and passes ---------- */
+
+#sat-list,
+#pass-list {
   list-style: none;
   margin: 0;
   padding: 0;
+  border-radius: var(--radius-inner);
+  background: var(--grouped);
+  overflow: hidden;
+}
+
+#sat-list li + li,
+#pass-list li + li {
+  box-shadow: inset 0 0.5px 0 var(--hairline);
+}
+
+.sat,
+.pass {
+  display: grid;
+  align-items: center;
+  width: 100%;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
 }
 
 .sat {
-  display: grid;
-  grid-template-columns: 12px 1fr auto;
-  gap: 2px 8px;
-  align-items: center;
-  width: 100%;
-  margin: 0 0 4px;
-  padding: 8px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.04);
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
+  grid-template-columns: 10px 1fr auto;
+  gap: 2px 10px;
+  padding: 10px 12px;
 }
 
-.sat:hover {
+.pass {
+  grid-template-columns: 10px 1fr auto auto;
+  gap: 10px;
+  padding: 8px 12px;
+  font-size: 12px;
+}
+
+.sat:hover,
+.pass:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.sat:active,
+.pass:active {
   background: rgba(255, 255, 255, 0.09);
 }
 
 .sat[aria-pressed="true"] {
-  border-color: var(--accent);
-  background: rgba(138, 180, 248, 0.12);
+  background: var(--accent-tint);
+}
+
+.pass[aria-current="true"] {
+  background: var(--visible-tint);
 }
 
 .swatch {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  box-shadow: 0 0 0 1px #000;
+  box-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.35);
 }
 
 .sat-name {
   font-weight: 600;
+  font-size: 14px;
+  letter-spacing: -0.01em;
+}
+
+.pass-name {
+  font-weight: 500;
 }
 
 .badge {
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.1);
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: var(--fill);
   font-size: 11px;
-  color: var(--muted);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--secondary);
 }
 
-.sat-live {
-  grid-column: 2 / 4;
-  color: var(--muted);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-
+.sat-live,
 .sat-sky {
   grid-column: 2 / 4;
-  color: var(--muted);
+  color: var(--secondary);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
@@ -137,94 +211,142 @@ h2 {
   content: "● ";
 }
 
-#pass-list {
-  list-style: none;
-  margin: 0 0 6px;
-  padding: 0;
-}
-
-.pass {
-  display: grid;
-  grid-template-columns: 12px 1fr auto auto;
-  gap: 8px;
-  align-items: center;
-  width: 100%;
-  margin: 0 0 2px;
-  padding: 5px 8px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  font-size: 12px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.pass:hover {
-  background: rgba(255, 255, 255, 0.07);
-}
-
-.pass[aria-current="true"] {
-  border-color: var(--visible);
-  background: rgba(48, 209, 88, 0.12);
-}
-
 .pass-time,
 .pass-max {
-  color: var(--muted);
+  color: var(--secondary);
   font-variant-numeric: tabular-nums;
 }
 
+.pass[aria-current="true"] .pass-time {
+  color: var(--visible);
+}
+
+/* ---------- Segmented controls ---------- */
+
 .segmented {
   display: flex;
-  margin-bottom: 6px;
-  border: 1px solid var(--panel-border);
-  border-radius: 6px;
-  overflow: hidden;
+  gap: 2px;
+  padding: 2px;
+  margin: 0 0 4px;
+  border-radius: 9px;
+  background: var(--fill);
 }
 
 .segmented button {
   flex: 1;
-  padding: 6px 0;
+  padding: 5px 0;
   border: 0;
+  border-radius: 7px;
   background: transparent;
-  color: var(--muted);
-  font: inherit;
+  color: var(--label);
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.segmented button:hover:not([aria-pressed="true"]) {
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .segmented button[aria-pressed="true"] {
-  background: rgba(138, 180, 248, 0.2);
-  color: var(--text);
+  background: var(--selected-segment);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.25), 0 0 0 0.5px rgba(0, 0, 0, 0.1);
+  font-weight: 600;
 }
 
+/* ---------- Switches (the layer checkboxes) ---------- */
+
 .check {
-  display: block;
-  margin: 4px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  padding: 9px 12px;
+  border-radius: var(--radius-inner);
+  background: var(--grouped);
   cursor: pointer;
 }
 
+.check + .check {
+  margin-top: 2px;
+}
+
+.check input {
+  order: 2;
+  flex: none;
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  width: 38px;
+  height: 23px;
+  margin: 0;
+  border-radius: 999px;
+  background: var(--fill-hover);
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.check input::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 19px;
+  height: 19px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+  transition: transform 0.2s ease;
+}
+
+.check input:checked {
+  background: var(--visible);
+}
+
+.check input:checked::after {
+  transform: translateX(15px);
+}
+
+.check input:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.check:has(input:disabled) {
+  color: var(--tertiary);
+  cursor: default;
+}
+
+#station-section .check {
+  margin-top: 8px;
+}
+
 .link-button {
-  margin-top: 6px;
+  margin: 10px 4px 0;
   padding: 0;
   border: 0;
   background: none;
   color: var(--accent);
-  font: inherit;
+  font-weight: 500;
   cursor: pointer;
 }
 
+.link-button:hover {
+  text-decoration: underline;
+}
+
 footer {
-  margin-top: 16px;
-  padding-top: 10px;
-  border-top: 1px solid var(--panel-border);
-  color: var(--muted);
+  margin-top: 18px;
+  padding: 10px 4px 0;
+  border-top: 0.5px solid var(--hairline);
+  color: var(--tertiary);
   font-size: 11px;
 }
 
 footer a {
-  color: var(--accent);
+  color: var(--secondary);
 }
 
 #loading {
@@ -232,17 +354,52 @@ footer a {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  padding: 10px 16px;
+  padding: 10px 18px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* ---------- Cesium widgets, matched to the panel ---------- */
+
+.cesium-viewer-infoBoxContainer .cesium-infoBox {
+  top: 12px;
+  right: 12px;
+  border: 0.5px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius);
+  background: var(--material);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
+  -webkit-backdrop-filter: saturate(180%) blur(24px);
+  backdrop-filter: saturate(180%) blur(24px);
+  overflow: hidden;
+}
+
+.cesium-infoBox-title {
+  background: transparent;
+  font-family: inherit;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.cesium-infoBox-camera,
+.cesium-infoBox-close {
   border-radius: 6px;
-  background: var(--panel-bg);
 }
 
-/* Cesium's info box: match the panel */
-.cesium-infoBox {
-  background: var(--panel-bg);
+.cesium-viewer-timelineContainer {
+  background: var(--material-strong);
 }
 
-/* Phones: the panel becomes a sheet above the timeline */
+.cesium-timeline-main {
+  border-top: 0.5px solid var(--hairline);
+}
+
+.cesium-viewer-bottom {
+  opacity: 0.6;
+}
+
+/* ---------- Phones: the panel becomes a sheet above the timeline ---------- */
+
 @media (max-width: 600px) {
   #panel {
     top: auto;
@@ -251,7 +408,18 @@ footer a {
     right: 8px;
     width: auto;
     max-height: 45%;
-    padding: 12px;
+    padding: 18px 12px 12px;
+  }
+
+  /* the grabber of an iOS sheet */
+  #panel::before {
+    content: "";
+    display: block;
+    width: 36px;
+    height: 5px;
+    margin: -10px auto 8px;
+    border-radius: 3px;
+    background: var(--tertiary);
   }
 
   #panel .subtitle,
@@ -260,7 +428,7 @@ footer a {
   }
 
   h2 {
-    margin-top: 10px;
+    margin-top: 14px;
   }
 
   .cesium-viewer-infoBoxContainer .cesium-infoBox {
@@ -276,5 +444,11 @@ footer a {
 
   .cesium-viewer-timelineContainer {
     left: 0 !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
   }
 }
