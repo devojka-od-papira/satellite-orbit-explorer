@@ -38,6 +38,14 @@ workshop reference values for the four satellites. That dataset (downloaded
 2026-11-10) is kept in `tests/data/`, and the period test runs against it,
 because fresh elements change: QZS-2's period moves after station-keeping.
 
+![Orbital speed of the four satellites over one day](docs/images/speeds.png)
+
+PULSAR-0 in low orbit is the fastest, at about 7.6 km/s. GALILEO 29 moves at
+about 3.7 km/s and SES-5 at about 3.1 km/s. Their orbits are close to circular,
+so their speed barely changes. QZS-2 has the same 24-hour period as SES-5, but
+its orbit is eccentric (e ≈ 0.076), so its speed swings by about 0.5 km/s over
+the day.
+
 ## Kepler vs SGP4
 GP elements are meant for SGP4, which adds Earth's oblateness (J2–J4), drag and,
 for high orbits, lunar and solar gravity. Comparing positions over the day
