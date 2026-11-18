@@ -31,7 +31,32 @@ from CelesTrak:
 This rewrites both files for the same four satellites, but only if every
 download succeeds. It warns when an epoch is more than 3 days from the window
 start. CelesTrak asks for no more than one download of the same data every two
-hours.
+hours, so it refuses to download again within 2 hours of the last download
+(`--force` overrides).
+
+A GitHub Actions workflow (`.github/workflows/refresh.yml`) does this every
+day at 03:17 UTC. It runs the tests on the new data and opens a pull request,
+or updates the open one, titled "Refresh GP data from CelesTrak (date)". The
+PR description lists that day's Kepler vs SGP4 differences and passes over
+Belgrade. Merging it publishes the 3D viewer for the new day. The README
+figures and numbers stay at their documented date. The workflow can also be
+started by hand from the Actions tab.
+
+- **Needs a repository setting.** To let the workflow open PRs, turn on "Allow
+  GitHub Actions to create and approve pull requests" under Settings → Actions
+  → General.
+- **Stale data is flagged.** If an element set is more than 3 days from the
+  window start, the PR title ends in "stale elements" and the description
+  starts with a warning.
+- **Your commits are safe.** If the open refresh PR has commits that the
+  workflow did not make, it skips that day and leaves a comment instead of
+  force-pushing over them. Merge commits don't count. Once that PR is closed,
+  the branch is replaced again. The push uses `--force-with-lease`, so a
+  commit pushed during the run is never lost.
+- **Rate limit.** It counts the download on an unmerged refresh branch too, so
+  starting it by hand soon after the morning run does nothing.
+- **Local preview.** `DRY_RUN=1 .github/scripts/daily_refresh.sh` previews the
+  PR, then puts the data back.
 
 ## Validation
 All periods, perigee/apogee altitudes and speed ranges matched the GNSS Academy

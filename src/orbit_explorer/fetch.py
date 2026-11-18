@@ -10,7 +10,9 @@ CelesTrak asks clients not to download the same data more than once every two
 hours; GP data is updated a few times a day at most.
 """
 
+import argparse
 import json
+import sys
 import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
@@ -23,6 +25,39 @@ USER_AGENT = (
     "(+https://github.com/devojka-od-papira/satellite-orbit-explorer)"
 )
 STALE_DAYS = 3  # flag records whose epoch is this far from the window start
+MIN_HOURS_BETWEEN_DOWNLOADS = 2  # CelesTrak: the same data at most every 2 hours
+TOO_SOON_EXIT_CODE = 3
+
+
+class TooSoon(RuntimeError):
+    """The last download was less than MIN_HOURS_BETWEEN_DOWNLOADS ago."""
+
+
+def retrieved_utc(manifest: dict) -> datetime:
+    return datetime.fromisoformat(manifest["retrieved_utc"])
+
+
+def hours_since_download(manifest_paths: list[Path], now: datetime) -> float:
+    """Hours since the most recent download recorded in any of the manifests
+    (e.g. the committed one and the one on an unmerged refresh branch)."""
+    latest = max(
+        retrieved_utc(json.loads(path.read_text()))
+        for path in manifest_paths
+        if path.exists()
+    )
+    return (now - latest).total_seconds() / 3600
+
+
+def stale_records(manifest: dict) -> list[str]:
+    """'NAME (+x.x d)' for each record whose epoch is more than STALE_DAYS
+    from the window start."""
+    start = datetime.fromisoformat(manifest["reference_start_utc"])
+    stale = []
+    for rec in manifest["source_records"]:
+        age = (start - datetime.fromisoformat(rec["epoch_utc"])).total_seconds() / 86400
+        if abs(age) > STALE_DAYS:
+            stale.append(f"{rec['object_name']} ({age:+.1f} d)")
+    return stale
 
 
 def fetch_text(url: str) -> str:
@@ -109,9 +144,24 @@ def refresh(
     data_path: Path = DATA_PATH,
     manifest_path: Path = MANIFEST_PATH,
     now: datetime | None = None,
+    force: bool = False,
+    seen_manifests: tuple[Path, ...] = (),
 ) -> dict:
-    """Download every satellite, then write elements and manifest together."""
+    """Download every satellite, then write elements and manifest together.
+
+    Raises TooSoon instead of downloading if this manifest or any of
+    ``seen_manifests`` records a download less than 2 hours ago, unless
+    ``force`` is set.
+    """
     retrieved = (now or datetime.now(UTC)).replace(microsecond=0)
+    if not force:
+        hours = hours_since_download([manifest_path, *seen_manifests], retrieved)
+        if hours < MIN_HOURS_BETWEEN_DOWNLOADS:
+            raise TooSoon(
+                f"Last download was {hours:.1f} h ago; CelesTrak asks for at most "
+                f"one every {MIN_HOURS_BETWEEN_DOWNLOADS} h. Nothing downloaded "
+                "(use --force to override)."
+            )
     norads = [sat["NORAD_CAT_ID"] for sat in load_elements(data_path)]
     fetched = [fetch_record(norad) for norad in norads]
     records = [record for record, _ in fetched]
@@ -121,8 +171,35 @@ def refresh(
     return manifest
 
 
-if __name__ == "__main__":
-    manifest = refresh()
+def main(
+    argv: list[str] | None = None,
+    data_path: Path = DATA_PATH,
+    manifest_path: Path = MANIFEST_PATH,
+) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help=f"download even if the last one was under {MIN_HOURS_BETWEEN_DOWNLOADS} h ago",
+    )
+    parser.add_argument(
+        "--seen-manifest",
+        type=Path,
+        action="append",
+        default=[],
+        help="another manifest whose download time counts for the rate limit",
+    )
+    args = parser.parse_args(argv)
+    try:
+        manifest = refresh(
+            data_path,
+            manifest_path,
+            force=args.force,
+            seen_manifests=tuple(args.seen_manifest),
+        )
+    except TooSoon as err:
+        print(err)
+        return TOO_SOON_EXIT_CODE
     start = datetime.fromisoformat(manifest["reference_start_utc"])
     print(f"Window start: {start:%Y-%m-%d %H:%M} UTC")
     for rec in manifest["source_records"]:
@@ -131,7 +208,12 @@ if __name__ == "__main__":
         print(
             f"  {rec['object_name']:24s} epoch {epoch:%Y-%m-%d %H:%M}  ({age:+.2f} d)"
         )
-    for note in manifest["known_limitations"][:1]:
-        if note.startswith("Epoch more than"):
-            print(f"Warning: {note}")
-    print(f"Written to {DATA_PATH} and {MANIFEST_PATH}")
+    stale = stale_records(manifest)
+    if stale:
+        print(f"Warning: epoch more than {STALE_DAYS} days old: {', '.join(stale)}")
+    print(f"Written to {data_path} and {manifest_path}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

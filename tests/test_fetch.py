@@ -24,12 +24,20 @@ def fake_tle(norad: int) -> str:
     )
 
 
+def write_retrieved(path, when: str):
+    m = json.loads(path.read_text())
+    m["retrieved_utc"] = when
+    path.write_text(json.dumps(m))
+
+
 @pytest.fixture
 def data_copy(tmp_path):
     data = tmp_path / "orbital_elements.json"
     manifest = tmp_path / "data_manifest.json"
     shutil.copy(DATA_PATH, data)
     shutil.copy(MANIFEST_PATH, manifest)
+    # well before NOW, whatever date the committed data has
+    write_retrieved(manifest, "2026-11-01T00:00:00Z")
     return data, manifest
 
 
@@ -110,3 +118,45 @@ def test_committed_manifest_matches_elements():
     ]
     start = datetime.fromisoformat(manifest["reference_start_utc"])
     assert (start.hour, start.minute, start.second) == (0, 0, 0)
+
+
+# ---------- CelesTrak rate limit ----------
+def test_download_within_two_hours_is_refused(data_copy, celestrak):
+    data, manifest_path = data_copy
+    write_retrieved(manifest_path, "2026-12-01T08:00:00Z")  # 1.5 h before NOW
+    before = data.read_text()
+    with pytest.raises(fetch.TooSoon, match="1.5 h ago"):
+        fetch.refresh(data, manifest_path, now=NOW)
+    assert data.read_text() == before
+    fetch.refresh(data, manifest_path, now=NOW, force=True)  # --force overrides
+    assert data.read_text() != before
+
+
+def test_download_on_an_unmerged_branch_counts(data_copy, celestrak, tmp_path):
+    """The refresh branch's manifest is newer than main's until the PR merges."""
+    data, manifest_path = data_copy
+    branch = tmp_path / "branch_manifest.json"
+    shutil.copy(manifest_path, branch)
+    write_retrieved(branch, "2026-12-01T09:00:00Z")
+    with pytest.raises(fetch.TooSoon):
+        fetch.refresh(data, manifest_path, now=NOW, seen_manifests=(branch,))
+    missing = tmp_path / "nope.json"  # a branch that doesn't exist is ignored
+    fetch.refresh(data, manifest_path, now=NOW, seen_manifests=(missing,))
+
+
+def test_cli_exit_code_when_too_soon(data_copy, celestrak, capsys):
+    data, manifest_path = data_copy
+    write_retrieved(manifest_path, datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"))
+    assert fetch.main([], data, manifest_path) == fetch.TOO_SOON_EXIT_CODE
+    assert "Nothing downloaded" in capsys.readouterr().out
+
+
+def test_stale_records_from_manifest():
+    manifest = {
+        "reference_start_utc": "2026-12-01T00:00:00Z",
+        "source_records": [
+            {"object_name": "FRESH", "epoch_utc": "2026-11-30T12:00:00Z"},
+            {"object_name": "OLD", "epoch_utc": "2026-11-20T00:00:00Z"},
+        ],
+    }
+    assert fetch.stale_records(manifest) == ["OLD (+11.0 d)"]

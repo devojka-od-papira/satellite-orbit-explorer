@@ -1,0 +1,33 @@
+name: Daily data refresh
+
+on:
+  schedule:
+    - cron: "17 3 * * *" # 03:17 UTC every day (off the hour, as GitHub asks)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write # to start CI on the refresh branch
+
+concurrency:
+  group: daily-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0 # full history, to compare the refresh branch with main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - run: .github/scripts/daily_refresh.sh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
