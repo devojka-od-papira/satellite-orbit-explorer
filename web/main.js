@@ -60,6 +60,8 @@ const ui = {
   stationSection: document.getElementById("station-section"),
   stationTitle: document.getElementById("station-title"),
   stationHint: document.getElementById("station-hint"),
+  stationPicker: document.getElementById("station-picker"),
+  noPasses: document.getElementById("no-passes"),
   passList: document.getElementById("pass-list"),
   showStation: document.getElementById("show-station"),
 };
@@ -68,8 +70,11 @@ let frame = "fixed";
 let model = "both";
 let inertialReset = false; // next inertial camera update jumps to the whole-Earth view
 const satellites = []; // { entity, track, orbit, sgp4, sgp4orbit, button, live, sky }
-// Ground station: { entity, name, maskDeg, toLocal, links, ring, passes: [{ ..., row }] }
+// Ground stations: [{ slug, entity, name, maskDeg, lon, lat, toLocal, rings,
+// links, passes: [{ ..., riseJd, setJd }] }]; `station` is the one shown.
+const stations = [];
 let station;
+let passRows = []; // [{ pass, row }] for the shown station
 let defaultMultiplier; // the CZML clock speed, restored after a slowed-down pass
 let slowPass; // the pass currently playing at SHORT_PASS_MULTIPLIER
 
@@ -259,48 +264,52 @@ function jumpToPass(p) {
   const leo = sat && Cesium.Cartographic.fromCartesian(
     sat.entity.position.getValue(rise),
   ).height < 2e6;
+  // South of the station looking north, so the map stays north-up; clamped so
+  // a station far south never puts the camera past the pole.
   const { lon, lat } = station;
+  const cameraLat = Math.max(lat - (leo ? 12 : 35), -89);
   viewer.camera.flyTo({
-    destination: Cesium.Cartesian3.fromDegrees(lon, lat - (leo ? 12 : 35), leo ? 4.5e6 : 3.5e7),
+    destination: Cesium.Cartesian3.fromDegrees(lon, cameraLat, leo ? 4.5e6 : 3.5e7),
     orientation: { heading: 0, pitch: Cesium.Math.toRadians(leo ? -60 : -75), roll: 0 },
     duration: 1.5,
   });
 }
 
-function addPassRow(p) {
-  const sat = satellites.find((s) => s.norad === p.norad);
+function addPassRow(pass) {
+  const sat = satellites.find((s) => s.norad === pass.norad);
   const row = document.createElement("button");
   row.type = "button";
   row.className = "pass";
   row.innerHTML = `
     <span class="swatch" style="background:${sat?.color ?? "#999"}"></span>
     <span class="pass-name"></span>
-    <span class="pass-time">${passLabel(p)}</span>
-    <span class="pass-max">max ${Math.round(p.maxEl)}°</span>`;
-  row.querySelector(".pass-name").textContent = p.name;
-  const pass = {
-    ...p,
-    row,
-    riseJd: Cesium.JulianDate.fromIso8601(p.rise),
-    setJd: Cesium.JulianDate.fromIso8601(p.set),
-  };
+    <span class="pass-time">${passLabel(pass)}</span>
+    <span class="pass-max">max ${Math.round(pass.maxEl)}°</span>`;
+  row.querySelector(".pass-name").textContent = pass.name;
   row.addEventListener("click", () => jumpToPass(pass));
   const li = document.createElement("li");
   li.append(row);
   ui.passList.append(li);
-  return pass;
+  return { pass, row };
 }
 
-function setupStation(ds, start) {
-  const entity = ds.entities.getById("station");
-  if (!entity) return;
+// "ring-new-york-64541" belongs to station "new-york", not "new": compare the
+// whole slug between the kind and the NORAD number, not just a prefix.
+function ownedBy(id, kind, slug) {
+  const m = id.match(/^(ring|link)-(.+)-(\d+)$/);
+  return m !== null && m[1] === kind && m[2] === slug;
+}
+
+function readStation(ds, entity, start) {
   const props = entity.properties.getValue(start);
   const position = entity.position.getValue(start);
   const carto = Cesium.Cartographic.fromCartesian(position);
-  const name = entity.name.replace(/ ground station$/, "");
-  station = {
+  const slug = entity.id.slice("station-".length);
+  return {
+    slug,
     entity,
-    name,
+    order: props.order,
+    name: entity.name.replace(/ ground station$/, ""),
     maskDeg: props.maskDeg,
     lon: Cesium.Math.toDegrees(carto.longitude),
     lat: Cesium.Math.toDegrees(carto.latitude),
@@ -309,27 +318,89 @@ function setupStation(ds, start) {
       Cesium.Transforms.eastNorthUpToFixedFrame(position),
       new Cesium.Matrix4(),
     ),
-    rings: ds.entities.values.filter((e) => e.id.startsWith("ring-")),
-    links: ds.entities.values.filter((e) => e.id.startsWith("link-")),
-    passes: [],
+    rings: ds.entities.values.filter((e) => ownedBy(e.id, "ring", slug)),
+    links: ds.entities.values.filter((e) => ownedBy(e.id, "link", slug)),
+    passes: JSON.parse(props.passes).map((p) => ({
+      ...p,
+      riseJd: Cesium.JulianDate.fromIso8601(p.rise),
+      setJd: Cesium.JulianDate.fromIso8601(p.set),
+    })),
   };
-  ui.stationTitle.textContent = `Passes over ${name}`;
-  ui.stationHint.textContent =
-    `Above ${props.maskDeg}° elevation, from SGP4, times in UTC. Click a pass to ` +
-    "jump to it. Short LEO passes play slower.";
-  station.passes = JSON.parse(props.passes).map(addPassRow);
+}
+
+function setupStations(ds, start) {
+  for (const entity of ds.entities.values) {
+    if (entity.id.startsWith("station-")) stations.push(readStation(ds, entity, start));
+  }
+  if (!stations.length) return;
+  stations.sort((a, b) => a.order - b.order);
+  for (const st of stations) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = st.name;
+    button.setAttribute("aria-pressed", "false");
+    button.addEventListener("click", () => selectStation(st.slug));
+    ui.stationPicker.append(button);
+    st.button = button;
+  }
   for (const s of satellites) s.sky.hidden = false;
   ui.stationSection.hidden = false;
-  applyStationVisibility(); // the browser may have restored an unchecked box
+  // A link like …/#tokyo opens on that station.
+  selectStation(stationFromHash() ?? stations[0].slug);
+  // Editing the hash in an open page (or following a #quito link) switches too.
+  window.addEventListener("hashchange", () => {
+    const slug = stationFromHash() ?? stations[0].slug;
+    if (slug !== station.slug) selectStation(slug);
+  });
+}
+
+function stationFromHash() {
+  const slug = location.hash.slice(1).toLowerCase();
+  return stations.some((s) => s.slug === slug) ? slug : undefined;
+}
+
+function selectStation(slug) {
+  if (station?.slug === slug) return; // already shown: nothing to rebuild
+  const previous = station;
+  station = stations.find((s) => s.slug === slug);
+  if (previous) {
+    // Don't leave the old station's marker or ring in the info box, or its
+    // slowed-down pass running at 30x.
+    const old = [previous.entity, ...previous.rings, ...previous.links];
+    if (old.includes(viewer.selectedEntity)) viewer.selectedEntity = undefined;
+    if (slowPass) {
+      if (viewer.clock.multiplier === SHORT_PASS_MULTIPLIER) {
+        viewer.clock.multiplier = defaultMultiplier;
+      }
+      slowPass = undefined;
+    }
+  }
+  for (const st of stations) st.button.setAttribute("aria-pressed", String(st === station));
+  ui.stationTitle.textContent = `Passes over ${station.name}`;
+  ui.stationHint.textContent =
+    `Above ${station.maskDeg}° elevation, from SGP4, times in UTC. Click a pass to ` +
+    "jump to it. Short LEO passes play slower.";
+  ui.passList.replaceChildren();
+  passRows = station.passes.map(addPassRow);
+  ui.noPasses.hidden = passRows.length > 0;
+  if (location.hash.slice(1) !== slug) {
+    const hash = slug === stations[0].slug ? "" : `#${slug}`;
+    history.replaceState(null, "", location.pathname + location.search + hash);
+  }
+  applyStationVisibility(); // also covers a checkbox the browser restored
+  lastLiveUpdate = 0; // refresh the sky lines now, even with the clock paused
+  updateLive(viewer.clock);
 }
 
 function applyStationVisibility() {
-  if (!station) return;
   const show = ui.showStation.checked;
-  station.entity.show = show;
-  for (const e of station.rings) e.show = show;
-  // Links end at the SGP4 marker (passes come from SGP4): hide them with it.
-  for (const e of station.links) e.show = show && model !== "kepler";
+  for (const st of stations) {
+    const on = show && st === station;
+    st.entity.show = on;
+    for (const e of st.rings) e.show = on;
+    // Links end at the SGP4 marker (passes come from SGP4): hide them with it.
+    for (const e of st.links) e.show = on && model !== "kepler";
+  }
 }
 
 function lookAngles(positionFixed) {
@@ -369,11 +440,11 @@ function updatePassRows(time) {
     }
     slowPass = undefined;
   }
-  for (const p of station.passes) {
+  for (const { pass, row } of passRows) {
     const active =
-      !Cesium.JulianDate.lessThan(time, p.riseJd) &&
-      !Cesium.JulianDate.greaterThan(time, p.setJd);
-    p.row.setAttribute("aria-current", String(active));
+      !Cesium.JulianDate.lessThan(time, pass.riseJd) &&
+      !Cesium.JulianDate.greaterThan(time, pass.setJd);
+    row.setAttribute("aria-current", String(active));
   }
 }
 
@@ -518,7 +589,7 @@ async function main() {
     for (const entity of ds.entities.values) {
       if (entity.id.startsWith("sat-")) addSatellite(ds, entity, start);
     }
-    setupStation(ds, start);
+    setupStations(ds, start);
     setModel(model);
     viewer.clock.onTick.addEventListener(updateLive);
     updateLive(viewer.clock);

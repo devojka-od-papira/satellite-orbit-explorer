@@ -9,7 +9,12 @@ from orbit_explorer.elements import load_elements
 from orbit_explorer.frames import ecef_to_geodetic, eci_to_ecef, gmst_rad
 from orbit_explorer.kepler import SPAN_S, START, propagate_eci, time_grid_s
 from orbit_explorer.sgp4_compare import compare, propagate_sgp4
-from orbit_explorer.visibility import BELGRADE, find_passes, satellite_look_angles
+from orbit_explorer.visibility import (
+    BELGRADE,
+    STATIONS,
+    find_passes,
+    satellite_look_angles,
+)
 
 SATS = load_elements()
 T = time_grid_s()[::CZML_STEP]
@@ -41,8 +46,8 @@ def test_document_packet_comes_first(czml):
 
 
 def test_packets_are_complete_with_unique_ids(czml):
-    """Document, five packets per satellite, the station, its rings and links,
-    and nothing else."""
+    """Document, five packets per satellite, the stations, their rings and
+    links, and nothing else."""
     ids = [p["id"] for p in czml]
     assert len(set(ids)) == len(ids)
     for sat in SATS:
@@ -51,7 +56,7 @@ def test_packets_are_complete_with_unique_ids(czml):
             assert f"{prefix}-{norad}" in ids
     rings = [i for i in ids if i.startswith("ring-")]
     links = [i for i in ids if i.startswith("link-")]
-    assert len(ids) == 1 + 5 * len(SATS) + 1 + len(rings) + len(links)
+    assert len(ids) == 1 + 5 * len(SATS) + len(STATIONS) + len(rings) + len(links)
 
 
 def test_is_plain_json(czml):
@@ -131,25 +136,38 @@ def test_geostationary_satellite_barely_moves(czml):
     assert drift_km < 50
 
 
-# ---------- Ground station ----------
-def station_passes(czml):
-    return json.loads(packet(czml, "station")["properties"]["passes"])
+# ---------- Ground stations ----------
+def station_passes(czml, station=BELGRADE):
+    return json.loads(packet(czml, f"station-{station.slug}")["properties"]["passes"])
 
 
-def test_station_sits_at_belgrade(czml):
-    lon, lat, h = packet(czml, "station")["position"]["cartographicDegrees"]
-    assert (lat, lon) == (BELGRADE.lat_deg, BELGRADE.lon_deg)
-    assert h == pytest.approx(BELGRADE.height_km * 1000)
+STATION_IDS = [st.slug for st in STATIONS]
 
 
-def test_station_passes_match_visibility(czml):
-    """The panel lists exactly the passes in visibility.txt."""
+def test_stations_in_viewer_order(czml):
+    stations = [p for p in czml if p["id"].startswith("station-")]
+    assert [p["id"] for p in stations] == [f"station-{s}" for s in STATION_IDS]
+    assert [p["properties"]["order"] for p in stations] == list(range(len(STATIONS)))
+    assert STATIONS[0] == BELGRADE  # the viewer opens on the first one
+
+
+@pytest.mark.parametrize("station", STATIONS, ids=STATION_IDS)
+def test_station_position(czml, station):
+    pkt = packet(czml, f"station-{station.slug}")
+    lon, lat, h = pkt["position"]["cartographicDegrees"]
+    assert (lat, lon) == (station.lat_deg, station.lon_deg)
+    assert h == pytest.approx(station.height_km * 1000)
+
+
+@pytest.mark.parametrize("station", STATIONS, ids=STATION_IDS)
+def test_station_passes_match_visibility(czml, station):
+    """The panel lists exactly the passes visibility.py finds for that station."""
     t = time_grid_s()
     expected = []
     for sat in SATS:
-        az, el, _ = satellite_look_angles(sat, t, BELGRADE)
+        az, el, _ = satellite_look_angles(sat, t, station)
         expected += [(sat["NORAD_CAT_ID"], p) for p in find_passes(t, el, az)]
-    passes = station_passes(czml)
+    passes = station_passes(czml, station)
     assert len(passes) == len(expected)
     assert [p["rise"] for p in passes] == sorted(p["rise"] for p in passes)
     for norad, p in expected:
@@ -163,24 +181,34 @@ def test_station_passes_match_visibility(czml):
         assert match[0]["maxEl"] == pytest.approx(p.max_el_deg, abs=0.05)
 
 
-def test_links_point_from_station_to_sgp4_during_passes(czml):
+@pytest.mark.parametrize("station", STATIONS, ids=STATION_IDS)
+def test_links_point_from_station_to_sgp4_during_passes(czml, station):
     ids = {p["id"] for p in czml}
-    passes = station_passes(czml)
-    links = [p for p in czml if p["id"].startswith("link-")]
-    assert links
+    passes = station_passes(czml, station)
+    prefix = f"link-{station.slug}-"
+    links = [p for p in czml if p["id"].startswith(prefix)]
+    assert {int(lk["id"][len(prefix) :]) for lk in links} == {
+        p["norad"] for p in passes
+    }
     for link in links:
+        norad = int(link["id"][len(prefix) :])
         refs = link["polyline"]["positions"]["references"]
-        assert refs[0] == "station#position"
-        assert refs[1].split("#")[0] in ids and refs[1].startswith("sgp4-")
-        norad = int(link["id"].split("-")[1])
-        assert len(link["availability"]) == sum(p["norad"] == norad for p in passes)
-    # QZS-2 never rises above the mask from Belgrade: no link at all
-    assert "link-42738" not in ids
+        assert refs == [f"station-{station.slug}#position", f"sgp4-{norad}#position"]
+        assert refs[1].split("#")[0] in ids
+        intervals = [f"{p['rise']}/{p['set']}" for p in passes if p["norad"] == norad]
+        assert link["availability"] == intervals  # same second as the pass list
+
+
+def test_qzss_is_seen_from_tokyo_but_not_belgrade(czml):
+    """The reason to offer more than one station."""
+    ids = {p["id"] for p in czml}
+    assert "link-belgrade-42738" not in ids
+    assert "link-tokyo-42738" in ids
 
 
 def test_visibility_ring_only_for_leo(czml):
     rings = [p["id"] for p in czml if p["id"].startswith("ring-")]
-    assert rings == ["ring-64541"]  # PULSAR-0
+    assert rings == [f"ring-{s}-64541" for s in STATION_IDS]  # PULSAR-0
 
 
 def test_visibility_radius():
@@ -216,3 +244,12 @@ def test_pass_list_uses_the_short_names(czml):
     }
     for p in passes:
         assert p["name"] == labels[p["norad"]]
+
+
+def test_station_packets_reject_positions_on_another_grid():
+    from orbit_explorer.czml import station_packets
+
+    sat = SATS[0]
+    coarse = {sat["NORAD_CAT_ID"]: np.zeros((len(T), 3))}  # the CZML grid, not 5 s
+    with pytest.raises(ValueError, match="full time grid"):
+        station_packets(BELGRADE, [sat], coarse, 0)

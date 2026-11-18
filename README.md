@@ -6,7 +6,7 @@ Keplerian orbit propagation and visualization of four real navigation satellites
 **[Open the 3D viewer](https://devojka-od-papira.github.io/satellite-orbit-explorer/)**:
 the four satellites on a globe, animated over the day, in the Earth-fixed or
 inertial frame, with the Kepler and SGP4 positions side by side, and the day's
-passes over Belgrade.
+passes over a ground station (Belgrade, Tokyo, Sydney or Quito).
 
 ![Ground tracks of four satellites over one day](docs/images/ground_tracks.png)
 
@@ -119,13 +119,16 @@ Belgrade on 2026-11-17:
 A static CesiumJS page in `web/` that loads `orbits.czml`. Its interface
 follows Apple's dark design, to match the figures: the system font (Inter
 elsewhere), translucent panels, grouped lists, segmented controls and switches.
-It also shows the ground station:
-- each satellite's live elevation and azimuth from Belgrade;
+It also shows a ground station: Belgrade, Tokyo, Sydney or Quito. A link
+ending in `#tokyo`, `#sydney` or `#quito` opens on that station. Tokyo shows
+why QZSS is a regional system: QZS-2, never above Belgrade's horizon, stays
+above 10° there for about 19 hours. For the chosen station the viewer shows:
+- each satellite's live elevation and azimuth;
 - the day's passes, where a click jumps to that pass (short LEO passes play
   at 30× so you can watch them);
 - a line from the station to each satellite while it is above the mask;
 - for PULSAR-0, a dashed circle on the ground: while its track is inside, the
-  satellite is above 10° from Belgrade.
+  satellite is above 10° from the station.
 
 ![Belgrade ground station in the 3D viewer during a PULSAR-0 pass](docs/images/viewer_station.jpg)
 

@@ -12,13 +12,14 @@ Each satellite gets five packets:
                   so the distance on screen is the one in sgp4_compare.
 - sgp4orbit-<id>: the SGP4 orbit in the inertial frame, dashed.
 
-The ground station (Belgrade by default) adds:
-- station:        a marker with the day's passes as a JSON property, which the
-                  viewer lists in its panel.
-- ring-<id>:      for LEO satellites, the circle on the ground inside which the
-                  satellite is above the elevation mask as seen from the station.
-- link-<id>:      a line from the station to the SGP4 satellite, shown only
-                  during passes (the same passes as visibility.py).
+Each ground station (visibility.STATIONS; the viewer shows one at a time)
+adds, with <st> its slug such as "belgrade":
+- station-<st>:      a marker with the day's passes as a JSON property, which
+                     the viewer lists in its panel.
+- ring-<st>-<id>:    for LEO satellites, the circle on the ground inside which
+                     the satellite is above the elevation mask from the station.
+- link-<st>-<id>:    a line from the station to the SGP4 satellite, shown only
+                     during passes (the same passes as visibility.py).
 """
 
 import json
@@ -40,11 +41,11 @@ from orbit_explorer.frames import ecef_to_geodetic, eci_to_ecef, gmst_rad
 from orbit_explorer.kepler import SPAN_S, START, propagate_eci, time_grid_s
 from orbit_explorer.sgp4_compare import propagate_sgp4
 from orbit_explorer.visibility import (
-    BELGRADE,
     ELEVATION_MASK_DEG,
+    STATIONS,
     Station,
     find_passes,
-    satellite_look_angles,
+    look_angles,
 )
 
 OUTPUT_PATH = Path("outputs/orbits.czml")
@@ -112,7 +113,11 @@ def document_packet() -> dict:
     }
 
 
-def satellite_packets(sat: dict, rgb: tuple[int, int, int]) -> list[dict]:
+def satellite_packets(
+    sat: dict, rgb: tuple[int, int, int], pos_sgp4: np.ndarray
+) -> list[dict]:
+    """``pos_sgp4``: SGP4 TEME positions on the CZML grid (every CZML_STEP-th
+    point), from the one SGP4 run in build_czml."""
     norad = sat["NORAD_CAT_ID"]
     name = sat["OBJECT_NAME"]
     period_s = period_hours(mean_motion_rad_s(sat["MEAN_MOTION"])) * 3600
@@ -122,7 +127,6 @@ def satellite_packets(sat: dict, rgb: tuple[int, int, int]) -> list[dict]:
     pos_eci, speed = propagate_eci(sat, t)
     pos_ecef = eci_to_ecef(pos_eci, theta)
     lat, lon, _ = ecef_to_geodetic(pos_ecef)
-    pos_sgp4, _ = propagate_sgp4(sat, t)
 
     def position(frame: str, pos_km: np.ndarray) -> dict:
         return {
@@ -237,27 +241,46 @@ def circle_degrees(lat_deg: float, lon_deg: float, radius_deg: float) -> list:
     return ground_track_degrees(np.degrees(lat), lon)
 
 
+def at(seconds: float) -> str:
+    """ISO time of a moment in the window, to the nearest second. Pass lists and
+    link availability both use it, so the two switch at the same second."""
+    return iso(START + timedelta(seconds=round(seconds)))
+
+
 def pass_interval(rise_s: float, set_s: float) -> str:
-    start = START + timedelta(seconds=int(np.floor(rise_s)))
-    stop = START + timedelta(seconds=int(np.ceil(set_s)))
-    return f"{iso(start)}/{iso(stop)}"
+    return f"{at(rise_s)}/{at(set_s)}"
 
 
-def station_packets(station: Station, sats: list[dict]) -> list[dict]:
+def hemisphere(value: float, positive: str, negative: str) -> str:
+    return f"{abs(value):.4f}° {positive if value >= 0 else negative}"
+
+
+def station_packets(
+    station: Station, sats: list[dict], sgp4_ecef: dict[int, np.ndarray], order: int
+) -> list[dict]:
+    """``sgp4_ecef``: each satellite's SGP4 ECEF positions on the full 5 s grid,
+    propagated once and shared by all stations."""
     t = time_grid_s()
+    for norad, pos in sgp4_ecef.items():
+        if pos.shape != (len(t), 3):
+            raise ValueError(
+                f"SGP4 positions for {norad} have shape {pos.shape}; expected "
+                f"{(len(t), 3)}, one per point of the full time grid"
+            )
+    st = station.slug
     passes, packets = [], []
     for sat in sats:
         norad = sat["NORAD_CAT_ID"]
         rgb = style.hex_to_rgb(style.sat_color(sat, dark=True))
-        az, el, _ = satellite_look_angles(sat, t, station)
+        az, el, _ = look_angles(sgp4_ecef[norad], station)
         sat_passes = find_passes(t, el, az)
         for p in sat_passes:
             passes.append(
                 {
                     "norad": norad,
                     "name": style.short_name(sat),
-                    "rise": iso(START + timedelta(seconds=round(p.rise_s))),
-                    "set": iso(START + timedelta(seconds=round(p.set_s))),
+                    "rise": at(p.rise_s),
+                    "set": at(p.set_s),
                     "maxEl": round(p.max_el_deg, 1),
                     "risesInWindow": p.rises_in_window,
                     "setsInWindow": p.sets_in_window,
@@ -266,14 +289,17 @@ def station_packets(station: Station, sats: list[dict]) -> list[dict]:
         if sat_passes:
             packets.append(
                 {
-                    "id": f"link-{norad}",
+                    "id": f"link-{st}-{norad}",
                     "name": f"{style.short_name(sat)} seen from {station.name}",
                     "availability": [
                         pass_interval(p.rise_s, p.set_s) for p in sat_passes
                     ],
                     "polyline": {
                         "positions": {
-                            "references": ["station#position", f"sgp4-{norad}#position"]
+                            "references": [
+                                f"station-{st}#position",
+                                f"sgp4-{norad}#position",
+                            ]
                         },
                         "arcType": "NONE",
                         "width": 1.5,
@@ -288,7 +314,7 @@ def station_packets(station: Station, sats: list[dict]) -> list[dict]:
             radius = visibility_radius_deg(a, ELEVATION_MASK_DEG)
             packets.append(
                 {
-                    "id": f"ring-{norad}",
+                    "id": f"ring-{st}-{norad}",
                     "name": f"Where {style.short_name(sat)} is visible from "
                     f"{station.name}",
                     "description": f"<p>While {style.short_name(sat)} is inside "
@@ -316,9 +342,10 @@ def station_packets(station: Station, sats: list[dict]) -> list[dict]:
 
     passes.sort(key=lambda p: p["rise"])
     station_packet = {
-        "id": "station",
+        "id": f"station-{st}",
         "name": f"{station.name} ground station",
-        "description": f"<p>{station.lat_deg:.4f}° N, {station.lon_deg:.4f}° E, "
+        "description": f"<p>{hemisphere(station.lat_deg, 'N', 'S')}, "
+        f"{hemisphere(station.lon_deg, 'E', 'W')}, "
         f"{station.height_km * 1000:.0f} m. Satellites count as visible above "
         f"{ELEVATION_MASK_DEG:.0f}° elevation.</p>",
         "position": {
@@ -345,6 +372,7 @@ def station_packets(station: Station, sats: list[dict]) -> list[dict]:
             "pixelOffset": {"cartesian2": [10, 0]},
         },
         "properties": {
+            "order": order,  # the viewer lists stations in this order
             "maskDeg": ELEVATION_MASK_DEG,
             "passes": json.dumps(passes, separators=(",", ":")),
         },
@@ -352,13 +380,21 @@ def station_packets(station: Station, sats: list[dict]) -> list[dict]:
     return [station_packet, *packets]
 
 
-def build_czml(station: Station = BELGRADE) -> list[dict]:
+def build_czml(stations: tuple[Station, ...] = STATIONS) -> list[dict]:
     sats = load_elements()
+    t = time_grid_s()
+    theta = gmst_rad(t)
     packets = [document_packet()]
+    sgp4_ecef = {}
     for sat in sats:
+        # One SGP4 run per satellite on the full grid serves both the CZML
+        # samples (every CZML_STEP-th point) and every station's look angles.
+        r_teme, _ = propagate_sgp4(sat, t)
+        sgp4_ecef[sat["NORAD_CAT_ID"]] = eci_to_ecef(r_teme, theta)
         rgb = style.hex_to_rgb(style.sat_color(sat, dark=True))  # dark globe
-        packets.extend(satellite_packets(sat, rgb))
-    packets.extend(station_packets(station, sats))
+        packets.extend(satellite_packets(sat, rgb, r_teme[::CZML_STEP]))
+    for order, station in enumerate(stations):
+        packets.extend(station_packets(station, sats, sgp4_ecef, order))
     return packets
 
 
