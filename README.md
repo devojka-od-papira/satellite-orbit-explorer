@@ -90,6 +90,14 @@ locally:
     mkdir -p _site && cp web/* outputs/orbits.czml _site/
     python -m http.server 8000 -d _site    # then open http://localhost:8000
 
+## Style
+All figures share one look, set in `orbit_explorer.style` after Apple's chart
+design: Apple system colours, light gridlines, no frames, and a left-aligned
+header. Each satellite keeps its colour in every figure, in Google Earth and
+in the 3D viewer. The four colours stay distinguishable with colour blindness.
+The typeface is [Inter](https://github.com/rsms/inter), bundled under the SIL
+Open Font License. Apple's SF Pro may only be used for Apple-platform UI.
+
 ## Development
     pip install -e ".[dev]"
     pre-commit install

@@ -19,6 +19,7 @@ from pathlib import Path
 
 import numpy as np
 
+from orbit_explorer import style
 from orbit_explorer.elements import (
     load_elements,
     mean_motion_rad_s,
@@ -32,7 +33,6 @@ from orbit_explorer.sgp4_compare import propagate_sgp4
 
 OUTPUT_PATH = Path("outputs/orbits.czml")
 CZML_STEP = 12  # keep every 12th epoch (60 s), plenty for Lagrange interpolation
-COLORS_RGB = [(31, 119, 180), (255, 127, 14), (44, 160, 44), (214, 39, 40)]
 
 
 def iso(dt) -> str:
@@ -125,14 +125,14 @@ def satellite_packets(sat: dict, rgb: tuple[int, int, int]) -> list[dict]:
             "point": {
                 "pixelSize": 10,
                 "color": {"rgba": rgba(rgb)},
-                "outlineColor": {"rgba": [0, 0, 0, 255]},
+                "outlineColor": {"rgba": [255, 255, 255, 255]},
                 "outlineWidth": 1,
             },
             "label": {
                 "text": name.split(" (")[0],
                 "font": "13px sans-serif",
                 "fillColor": {"rgba": rgba(rgb)},
-                "outlineColor": {"rgba": [0, 0, 0, 255]},
+                "outlineColor": {"rgba": [255, 255, 255, 255]},
                 "outlineWidth": 2,
                 "style": "FILL_AND_OUTLINE",
                 "horizontalOrigin": "LEFT",
@@ -196,7 +196,8 @@ def satellite_packets(sat: dict, rgb: tuple[int, int, int]) -> list[dict]:
 
 def build_czml() -> list[dict]:
     packets = [document_packet()]
-    for sat, rgb in zip(load_elements(), COLORS_RGB):
+    for sat in load_elements():
+        rgb = style.hex_to_rgb(style.sat_color(sat, dark=True))  # dark globe
         packets.extend(satellite_packets(sat, rgb))
     return packets
 

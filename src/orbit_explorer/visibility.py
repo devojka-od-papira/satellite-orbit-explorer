@@ -17,6 +17,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
+from orbit_explorer import style
 from orbit_explorer.elements import load_elements
 from orbit_explorer.frames import eci_to_ecef, geodetic_to_ecef, gmst_rad
 from orbit_explorer.kepler import SPAN_S, START, propagate_eci, time_grid_s
@@ -24,7 +25,6 @@ from orbit_explorer.sgp4_compare import propagate_sgp4
 
 OUTPUT_DIR = Path("outputs")
 ELEVATION_MASK_DEG = 10.0  # common GNSS cut-off angle
-COLORS = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728"]
 
 
 @dataclass(frozen=True)
@@ -194,41 +194,71 @@ def kepler_shift(p: Pass, kepler: list[Pass]) -> str:
 
 
 def plot_elevation(path: Path, station: Station = BELGRADE) -> None:
+    """Elevation over the day; full colour only where the station sees it."""
+    style.use()
     t = time_grid_s()
-    fig, ax = plt.subplots(figsize=(12, 5))
-    for sat, color in zip(load_elements(), COLORS):
+    h = t / 3600
+    sats = load_elements()
+    fig, ax = plt.subplots(figsize=(12, 5.2))
+    ax.axhspan(-90, ELEVATION_MASK_DEG, color=style.FILL, linewidth=0, zorder=0)
+    ax.axhline(
+        ELEVATION_MASK_DEG,
+        color=style.SEPARATOR,
+        linewidth=1,
+        linestyle=(0, (3, 3)),
+        zorder=1,
+    )
+    for sat in sats:
+        color = style.sat_color(sat)
         _, el, _ = satellite_look_angles(sat, t, station)
-        ax.plot(t / 3600, el, color=color, linewidth=1.2, label=sat["OBJECT_NAME"])
-    ax.axhspan(-90, ELEVATION_MASK_DEG, color="0.85", zorder=0)
-    ax.axhline(ELEVATION_MASK_DEG, color="0.5", linewidth=0.8, linestyle="--")
-    ax.text(
-        0.2,
-        ELEVATION_MASK_DEG + 1.5,
+        ax.plot(h, el, color=color, linewidth=1.2, alpha=0.3, zorder=2)
+        # a small overlap below the mask so the bright part meets the line
+        visible = np.where(el >= ELEVATION_MASK_DEG - 0.5, el, np.nan)
+        ax.plot(h, visible, color=color, linewidth=2.5, zorder=3)
+    ax.annotate(
         f"{ELEVATION_MASK_DEG:.0f}° mask",
-        color="0.4",
-        fontsize=9,
+        xy=(6.2, ELEVATION_MASK_DEG),
+        xytext=(0, 4),
+        textcoords="offset points",
+        color=style.SECONDARY,
+        fontsize=10,
     )
-    ax.set(
-        xlim=(0, SPAN_S / 3600),
-        ylim=(-90, 90),
-        xlabel=f"Hours since {START:%Y-%m-%d %H:%M} UTC",
-        ylabel="Elevation [deg]",
-        title=f"Elevation seen from {station.name}",
+    style.time_axis(ax)
+    ax.set_ylim(-90, 90)
+    ax.set_yticks([-90, -45, 0, 45, 90], ["−90°", "−45°", "0°", "45°", "90°"])
+    ax.yaxis.tick_right()
+    style.header(
+        ax,
+        f"Elevation seen from {station.name}",
+        f"{style.date_label(START)} · UTC · SGP4 · faded below the "
+        f"{ELEVATION_MASK_DEG:.0f}° mask",
+        caption="Visibility",
     )
-    # Outside the axes: the curves fill the whole plot area.
-    ax.legend(fontsize=8, loc="upper left", bbox_to_anchor=(1.01, 1))
-    ax.grid(alpha=0.3)
-    fig.savefig(path, dpi=150, bbox_inches="tight")
+    style.dot_legend(
+        ax, [style.short_name(s) for s in sats], [style.sat_color(s) for s in sats]
+    )
+    fig.savefig(path)
     plt.close(fig)
 
 
 def plot_skyplot(path: Path, station: Station = BELGRADE) -> None:
     """Polar sky view: north up, azimuth clockwise, zenith at the centre."""
+    style.use()
     t = time_grid_s()
-    fig, ax = plt.subplots(figsize=(7, 7), subplot_kw={"projection": "polar"})
+    sats = load_elements()
+    fig, ax = plt.subplots(figsize=(7, 7.6), subplot_kw={"projection": "polar"})
     ax.set_theta_zero_location("N")
     ax.set_theta_direction(-1)
-    for sat, color in zip(load_elements(), COLORS):
+    ax.fill_between(
+        np.linspace(0, 2 * np.pi, 200),
+        90 - ELEVATION_MASK_DEG,
+        90,
+        color=style.FILL,
+        linewidth=0,
+        zorder=0,
+    )
+    for sat in sats:
+        color = style.sat_color(sat)
         az, el, _ = satellite_look_angles(sat, t, station)
         r = np.where(el >= 0, 90 - el, np.nan)  # hide below the horizon
         theta = np.radians(az)
@@ -237,8 +267,8 @@ def plot_skyplot(path: Path, station: Station = BELGRADE) -> None:
             np.insert(theta, jumps, np.nan),
             np.insert(r, jumps, np.nan),
             color=color,
-            linewidth=1.2,
-            label=sat["OBJECT_NAME"],
+            linewidth=2,
+            zorder=2,
         )
         visible = el >= 0
         if visible.any() and np.ptp(az[visible]) < 1 and np.ptp(el[visible]) < 1:
@@ -246,26 +276,33 @@ def plot_skyplot(path: Path, station: Station = BELGRADE) -> None:
             ax.scatter(
                 np.radians(az[visible].mean()),
                 90 - el[visible].mean(),
-                s=60,
+                s=110,
                 color=color,
-                edgecolor="black",
-                zorder=3,
+                **style.DOT,
             )
-    ax.fill_between(
-        np.linspace(0, 2 * np.pi, 200),
-        90 - ELEVATION_MASK_DEG,
-        90,
-        color="0.85",
-        zorder=0,
-    )
+    ax.grid(True, color=style.GRID, linewidth=0.8)
+    ax.spines["polar"].set_color(style.SEPARATOR)
     ax.set_rlim(0, 90)
     ax.set_rticks([0, 30, 60, 90 - ELEVATION_MASK_DEG])
-    ax.set_yticklabels(["90°", "60°", "30°", f"{ELEVATION_MASK_DEG:.0f}°"], fontsize=8)
+    ax.set_yticklabels(["90°", "60°", "30°", f"{ELEVATION_MASK_DEG:.0f}°"])
+    ax.set_rlabel_position(22.5)
     ax.set_xticks(np.radians([0, 90, 180, 270]))
-    ax.set_xticklabels(["N", "E", "S", "W"])
-    ax.set_title(f"Sky plot from {station.name}, {START:%Y-%m-%d} (24 h)", pad=16)
-    ax.legend(fontsize=8, loc="upper left", bbox_to_anchor=(0.95, 1.08))
-    fig.savefig(path, dpi=150, bbox_inches="tight")
+    ax.set_xticklabels(["N", "E", "S", "W"], fontweight="semibold", color=style.LABEL)
+    style.header(
+        ax,
+        f"Sky from {station.name}",
+        f"{style.date_label(START)} · 24 h · SGP4",
+        caption="Visibility",
+        pad=28,  # clear of the N label
+    )
+    style.dot_legend(
+        ax,
+        [style.short_name(s) for s in sats],
+        [style.sat_color(s) for s in sats],
+        bbox_to_anchor=(0, -0.07),  # below the S label
+        bbox_transform=ax.transAxes,
+    )
+    fig.savefig(path)
     plt.close(fig)
 
 
