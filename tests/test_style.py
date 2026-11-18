@@ -76,3 +76,17 @@ def test_styled_figures_leave_global_settings_alone(tmp_path):
     before = dict(plt.rcParams)
     plot_speeds(tmp_path / "speeds.png")
     assert dict(plt.rcParams) == before
+
+
+def test_dimmed_legend_entries_keep_their_place_and_colour_faded():
+    fig, ax = plt.subplots()
+    colors = [style.sat_color(s) for s in SATS]
+    legend = style.dot_legend(ax, ["a", "b", "c", "d"], colors, dimmed=[2])
+    texts = [t.get_text() for t in legend.get_texts()]
+    assert texts == ["a", "b", "c", "d"]  # same order, nothing dropped
+    alphas = [h.get_alpha() for h in legend.legend_handles]
+    assert alphas == [1, 1, style.DIMMED_ALPHA, 1]
+    assert legend.legend_handles[2].get_color() == colors[2]
+    assert legend.get_texts()[2].get_color() == style.SECONDARY
+    assert legend.get_texts()[0].get_color() != style.SECONDARY
+    plt.close(fig)

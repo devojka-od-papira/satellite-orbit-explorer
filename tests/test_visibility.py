@@ -6,6 +6,7 @@ from orbit_explorer.frames import geodetic_to_ecef
 from orbit_explorer.kepler import time_grid_s
 from orbit_explorer.visibility import (
     BELGRADE,
+    CUSTOM_OPTIONS,
     ELEVATION_MASK_DEG,
     STATIONS,
     STATIONS_BY_SLUG,
@@ -151,8 +152,24 @@ def test_station_option_picks_a_viewer_station(station):
         (["--lat", "95"], "--lat must be between -90 and 90"),
         (["--lon", "-200"], "--lon must be between -180 and 180"),
         (["--name", "!!!", "--lat", "1"], "at least one letter or digit"),
+        (["--name=---", "--lat", "1"], "at least one letter or digit"),
+        (["--name", ""], "at least one letter or digit"),
+        (["--height", "nan"], "--height must be between -500 and 9000 m, not nan"),
+        (["--height", "inf"], "--height must be between"),
+        (["--height", "-20000"], "--height must be between"),
     ],
-    ids=["unknown", "station-and-custom", "lat", "lon", "name"],
+    ids=[
+        "unknown",
+        "station-and-custom",
+        "lat",
+        "lon",
+        "name",
+        "hyphens",
+        "empty-name",
+        "height-nan",
+        "height-inf",
+        "height-low",
+    ],
 )
 def test_bad_station_options_are_refused(argv, message, capsys):
     with pytest.raises(SystemExit) as exit_info:
@@ -172,6 +189,22 @@ def test_slug_is_safe_in_a_file_name():
     assert Station("Novi Sad", 0, 0).slug == "novi-sad"
     assert Station("São Paulo / GRU", 0, 0).slug == "são-paulo-gru"
     assert Station("my_site", 0, 0).slug == "my-site"
+    assert Station("Rio - Centro", 0, 0).slug == "rio-centro"  # one hyphen
+    assert Station(" -Quito- ", 0, 0).slug == "quito"
+    assert Station("---", 0, 0).slug == ""  # refused by the CLI
+
+
+def test_viewer_station_slugs_are_unchanged():
+    """They are CZML ids and URL hashes (#tokyo) already in use."""
+    assert list(STATIONS_BY_SLUG) == ["belgrade", "tokyo", "sydney", "quito"]
+
+
+def test_custom_station_options_are_all_covered():
+    """Every custom option conflicts with --station, including any added later."""
+    for option, _, _ in CUSTOM_OPTIONS:
+        value = "X" if option == "name" else "1"
+        with pytest.raises(SystemExit):
+            parse_station(["--station", "tokyo", f"--{option}", value])
 
 
 def test_belgrade_keeps_the_plain_output_names(tmp_path):
@@ -181,11 +214,22 @@ def test_belgrade_keeps_the_plain_output_names(tmp_path):
         "elevation": "visibility_elevation.png",
         "skyplot": "visibility_skyplot.png",
     }
-    # Belgrade's name at other coordinates is a different station
-    elsewhere = Station("Belgrade", 1, 1)
-    assert (
-        output_paths(elsewhere, tmp_path)["summary"].name == "visibility_belgrade.txt"
-    )
+    # explicitly giving Belgrade's own values is still Belgrade
+    assert parse_station(["--name", "Belgrade"]) == BELGRADE
+
+
+@pytest.mark.parametrize(
+    "station, stem",
+    [
+        (STATIONS_BY_SLUG["tokyo"], "visibility_tokyo"),
+        (Station("Tokyo", 35.68, 139.77), "visibility_custom-tokyo"),
+        (Station("Belgrade", 1, 1), "visibility_custom-belgrade"),
+        (Station("Novi Sad", 45.25, 19.84), "visibility_custom-novi-sad"),
+    ],
+    ids=["viewer-station", "same-name-elsewhere", "belgrade-elsewhere", "custom"],
+)
+def test_custom_stations_never_share_a_viewer_stations_files(tmp_path, station, stem):
+    assert output_paths(station, tmp_path)["summary"].name == f"{stem}.txt"
 
 
 def test_main_writes_the_stations_own_files(tmp_path):
@@ -219,11 +263,30 @@ def test_peak_just_below_mask_gets_no_visible_points():
     assert find_passes(x, el, np.zeros_like(x), mask=10) == []
 
 
+H = np.arange(0, 24, 0.01)
+FLAT = np.full_like(H, -40.0)
+
+
 def test_mask_label_moves_off_a_curve_near_the_mask():
-    h = np.arange(0, 24, 0.01)
-    flat = np.full_like(h, -40.0)
-    assert mask_label_hour(h, [flat]) == pytest.approx(6.2)  # the usual spot
-    crossing = np.where((h > 6) & (h < 7), 15.0, -40.0)  # just above the line
-    x = mask_label_hour(h, [flat, crossing])
+    assert mask_label_hour(H, [FLAT], 1.4) == pytest.approx(6.2)  # the usual spot
+    crossing = np.where((H > 6) & (H < 7), 15.0, -40.0)  # just above the line
+    x = mask_label_hour(H, [FLAT, crossing], 1.4)
     assert x >= 7 + 0.3 or x + 1.4 + 0.3 <= 6  # clear of it, margins included
-    assert x == pytest.approx(7.3, abs=0.11)  # and the nearest clear spot
+    assert x == pytest.approx(7.3)  # and the nearest clear spot
+
+
+def test_mask_label_with_no_clear_spot_takes_the_least_crowded():
+    """Curves near the line all day, but thinnest around 18 h."""
+    crowded = np.where(np.abs(H - 18.5) < 1.5, -40.0, 12.0)
+    other = np.where(np.abs(H - 18.5) < 0.6, -40.0, 15.0)
+    x = mask_label_hour(H, [crowded, other], 1.4)
+    assert 17.4 <= x <= 18.2  # around 18.5 h, not the usual 6.2 h
+
+
+def test_mask_label_width_is_measured_from_the_text():
+    """A wider label needs a wider gap, so it lands farther from the curve."""
+    crossing = np.where((H > 6) & (H < 7), 15.0, -40.0)
+    narrow = mask_label_hour(H, [crossing], 1.0, preferred_h=5.5)
+    wide = mask_label_hour(H, [crossing], 3.0, preferred_h=5.5)
+    assert narrow == pytest.approx(4.7)  # fits before the curve: 4.7 + 1.0 + 0.3
+    assert wide == pytest.approx(7.3)  # would have to start at 2.7; after is nearer

@@ -106,6 +106,8 @@ RC = {
 
 # A white ring around dots lifts them off lines and fills.
 DOT = {"edgecolor": BACKGROUND, "linewidth": 1.5, "zorder": 4}
+# Legend entries with nothing in the plot: same colour, faded.
+DIMMED_ALPHA = 0.35
 
 
 @functools.cache
@@ -173,7 +175,7 @@ def header(
         )
 
 
-def dot(color: str, hollow: bool = False):
+def dot(color: str, hollow: bool = False, alpha: float = 1):
     """A legend handle: a filled dot, or a ring."""
     from matplotlib.lines import Line2D
 
@@ -187,19 +189,27 @@ def dot(color: str, hollow: bool = False):
             markerfacecolor=BACKGROUND,
             markeredgecolor=color,
             markeredgewidth=2,
+            alpha=alpha,
         )
-    return Line2D([], [], marker="o", linestyle="", markersize=8, color=color)
+    return Line2D(
+        [], [], marker="o", linestyle="", markersize=8, color=color, alpha=alpha
+    )
 
 
-def dot_legend(ax, labels, colors, extra=(), **kwargs):
+def dot_legend(ax, labels, colors, extra=(), dimmed=(), **kwargs):
     """One row of coloured dots and names below the axes, aligned left
     (where Swift Charts puts its legend).
 
     ``extra`` adds (handle, label) pairs after the dots, e.g. marker keys.
+    ``dimmed``: indices of entries with nothing to show in the plot (e.g. a
+    satellite that never rises); they keep their place and colour, faded.
     """
     from matplotlib.transforms import ScaledTranslation
 
-    handles = [dot(c) for c in colors] + [h for h, _ in extra]
+    dimmed = set(dimmed)
+    handles = [
+        dot(c, alpha=DIMMED_ALPHA if i in dimmed else 1) for i, c in enumerate(colors)
+    ] + [h for h, _ in extra]
     labels = list(labels) + [label for _, label in extra]
     below_ticks = ScaledTranslation(-6 / 72, -30 / 72, ax.figure.dpi_scale_trans)
     options = {
@@ -213,7 +223,11 @@ def dot_legend(ax, labels, colors, extra=(), **kwargs):
         "borderaxespad": 0,
     }
     options.update(kwargs)
-    return ax.legend(handles, labels, **options)
+    legend = ax.legend(handles, labels, **options)
+    for i, text in enumerate(legend.get_texts()):
+        if i in dimmed:
+            text.set_color(SECONDARY)
+    return legend
 
 
 def time_axis(ax, span_h: float, step_h: int = 3) -> None:

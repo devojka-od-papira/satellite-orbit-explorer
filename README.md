@@ -108,9 +108,11 @@ Belgrade on 2026-11-17:
 
 The same script works for the 3D viewer's other stations: `--station tokyo`,
 `sydney` or `quito`. Their files get the station's name, e.g.
-`outputs/visibility_tokyo_skyplot.png`, so Belgrade's are never overwritten.
-From Tokyo, QZS-2 traces its figure eight high in the southern sky and stays
-above 10° for about 19 hours:
+`outputs/visibility_tokyo_skyplot.png`, and your own station (`--lat`, `--lon`)
+is marked custom (`visibility_custom-novi-sad.txt`), so no run overwrites
+another. A satellite that never rises is faded in the sky plot's legend. From
+Tokyo, QZS-2 traces its figure eight high in the southern sky and stays above
+10° in one pass of about 19 hours:
 
 ![Sky plot from Tokyo](docs/images/visibility_tokyo_skyplot.png)
 
@@ -132,7 +134,7 @@ elsewhere), translucent panels, grouped lists, segmented controls and switches.
 It also shows a ground station: Belgrade, Tokyo, Sydney or Quito. A link
 ending in `#tokyo`, `#sydney` or `#quito` opens on that station. Tokyo shows
 why QZSS is a regional system: QZS-2, never above Belgrade's horizon, stays
-above 10° there for about 19 hours. For the chosen station the viewer shows:
+above 10° there in one pass of about 19 hours. For the chosen station the viewer shows:
 - each satellite's live elevation and azimuth;
 - the day's passes, where a click jumps to that pass (short LEO passes play
   at 30× so you can watch them);
