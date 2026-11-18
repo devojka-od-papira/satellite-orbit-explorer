@@ -134,7 +134,7 @@ builds and publishes it to GitHub Pages on every push to `main`. To preview it
 locally:
 
     python -m orbit_explorer.czml
-    mkdir -p _site && cp web/* outputs/orbits.czml _site/
+    mkdir -p _site && cp -R web/. _site/ && cp outputs/orbits.czml _site/
     python -m http.server 8000 -d _site    # then open http://localhost:8000
 
 ## Style

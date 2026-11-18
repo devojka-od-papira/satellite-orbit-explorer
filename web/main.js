@@ -431,35 +431,52 @@ function updateLive(clock) {
 // ---------- Info box ----------
 
 // The info box renders the CZML description inside an iframe with Cesium's own
-// stylesheet; restyle its table as an Apple-style list to match the panel.
-const INFO_BOX_CSS = `
-  body {
-    margin: 6px 14px 12px;
-    font: 13px/1.38 -apple-system, BlinkMacSystemFont, Inter, system-ui, sans-serif;
-    color: #f5f5f7;
-    -webkit-font-smoothing: antialiased;
-  }
-  body table { width: 100%; border-collapse: collapse; }
-  body th, body td { padding: 6px 0; border: 0; background: none; }
-  body th { text-align: left; font-weight: 400; color: rgba(235, 235, 245, 0.6); }
-  body td { text-align: right; font-variant-numeric: tabular-nums; }
-  body tr + tr th, body tr + tr td { border-top: 0.5px solid rgba(84, 84, 88, 0.6); }
-  body p { margin: 4px 0; color: rgba(235, 235, 245, 0.8); }
-`;
+// stylesheet, which sets its own font on .cesium-infoBox-description. Restyle
+// it as an Apple-style list, with the colours and font taken from style.css.
+function infoBoxCss() {
+  const root = getComputedStyle(document.documentElement);
+  const v = (name) => root.getPropertyValue(name).trim();
+  return `
+    html body, html body .cesium-infoBox-description {
+      margin: 0;
+      font: 13px/1.38 ${root.fontFamily};
+      color: ${v("--label")};
+      -webkit-font-smoothing: antialiased;
+    }
+    html body .cesium-infoBox-description { padding: 6px 14px 12px; }
+    body table { width: 100%; border-collapse: collapse; }
+    body th, body td { padding: 6px 0; border: 0; background: none; }
+    body th { text-align: left; font-weight: 400; color: ${v("--secondary")}; }
+    body td { text-align: right; font-variant-numeric: tabular-nums; }
+    body tr + tr th, body tr + tr td { border-top: 0.5px solid ${v("--hairline")}; }
+    body p { margin: 4px 0; }
+  `;
+}
 
 function styleInfoBox() {
-  const frame = viewer.infoBox?.frame;
-  if (!frame) return;
+  const box = viewer.infoBox;
+  if (!box) return;
+  box.container.querySelector(".cesium-infoBox")?.classList.add("material");
+  const frame = box.frame;
   const inject = () => {
     const doc = frame.contentDocument;
     if (!doc?.head || doc.getElementById("apple-style")) return;
     const style = doc.createElement("style");
     style.id = "apple-style";
-    style.textContent = INFO_BOX_CSS;
+    style.textContent = infoBoxCss();
     doc.head.append(style);
   };
   frame.addEventListener("load", inject);
   inject(); // the blank frame may have loaded already
+}
+
+async function fontsReady() {
+  // Cesium draws labels onto a canvas and caches them by font, so make sure
+  // Inter (used where the system font isn't SF) has loaded before the CZML.
+  // Never wait more than 3 s for it.
+  const timeout = new Promise((resolve) => setTimeout(resolve, 3000));
+  const fonts = ["500 13px Inter", "600 13px Inter"].map((f) => document.fonts.load(f));
+  await Promise.race([Promise.all(fonts), timeout]).catch(() => {});
 }
 
 // ---------- Wiring ----------
@@ -488,6 +505,7 @@ async function main() {
     destination: Cesium.Cartesian3.fromDegrees(60, 15, WHOLE_EARTH_HEIGHT_M),
   });
   try {
+    await fontsReady();
     const ds = await Cesium.CzmlDataSource.load("orbits.czml");
     await viewer.dataSources.add(ds); // the viewer adopts the CZML clock
     defaultMultiplier = viewer.clock.multiplier;

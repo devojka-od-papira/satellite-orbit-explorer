@@ -1,6 +1,34 @@
 /* Apple-style dark UI over the globe: system font, translucent "material"
    panels, grouped lists, segmented controls and switches. Colours are Apple's
    dark-mode system colours, the same family as the satellite colours. */
+
+/* Inter, bundled (SIL OFL, fonts/OFL.txt): the figures' typeface, used where
+   Apple's system font isn't available. No third-party font request. */
+@font-face {
+  font-family: Inter;
+  font-weight: 400;
+  font-display: swap;
+  src: url("fonts/Inter-Regular.woff2") format("woff2");
+}
+@font-face {
+  font-family: Inter;
+  font-weight: 500;
+  font-display: swap;
+  src: url("fonts/Inter-Medium.woff2") format("woff2");
+}
+@font-face {
+  font-family: Inter;
+  font-weight: 600;
+  font-display: swap;
+  src: url("fonts/Inter-SemiBold.woff2") format("woff2");
+}
+@font-face {
+  font-family: Inter;
+  font-weight: 700;
+  font-display: swap;
+  src: url("fonts/Inter-Bold.woff2") format("woff2");
+}
+
 :root {
   --material: rgba(28, 28, 30, 0.72); /* systemGray6 (dark), translucent */
   --material-strong: rgba(28, 28, 30, 0.9);
@@ -105,6 +133,13 @@ button:focus-visible,
 input:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+/* Rows sit inside lists with overflow: hidden; draw their ring inside. */
+.sat:focus-visible,
+.pass:focus-visible {
+  outline-offset: -2px;
+  border-radius: var(--radius-inner);
 }
 
 /* ---------- Grouped lists: satellites and passes ---------- */
@@ -362,15 +397,11 @@ footer a {
 
 /* ---------- Cesium widgets, matched to the panel ---------- */
 
+/* main.js adds the .material class, so it shares the panel's look and fallback */
 .cesium-viewer-infoBoxContainer .cesium-infoBox {
   top: 12px;
   right: 12px;
-  border: 0.5px solid rgba(255, 255, 255, 0.12);
   border-radius: var(--radius);
-  background: var(--material);
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
-  -webkit-backdrop-filter: saturate(180%) blur(24px);
-  backdrop-filter: saturate(180%) blur(24px);
   overflow: hidden;
 }
 
@@ -448,7 +479,9 @@ footer a {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  * {
+  *,
+  *::before,
+  *::after {
     transition: none !important;
   }
 }
