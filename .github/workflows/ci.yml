@@ -62,3 +62,5 @@ jobs:
       - run: pip install -e ".[viewer]"
       - run: python -m playwright install --with-deps chromium
       - run: pytest tests/viewer -v
+        env:
+          VIEWER_TESTS_REQUIRED: "1" # fail, never skip, if the browser is missing

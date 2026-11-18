@@ -3,11 +3,14 @@ locally and open it in headless Chromium (Playwright).
 
 These tests need ``pip install -e ".[viewer]"`` and a browser:
 ``playwright install chromium`` (or a local Google Chrome, used as a fallback).
-Without them they are skipped, so a plain ``pytest`` stays fast.
+Without them they are skipped, so a plain ``pytest`` stays fast, except when
+VIEWER_TESTS_REQUIRED is set (the CI viewer job): then a missing Playwright or
+browser fails the run instead of skipping it into a green check.
 """
 
 import functools
 import json
+import os
 import shutil
 import threading
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -22,9 +25,17 @@ try:
 except ImportError:  # the test module skips itself; see test_viewer.py
     sync_api = None
 
+REQUIRED = bool(os.environ.get("VIEWER_TESTS_REQUIRED"))
 WEB_DIR = Path(__file__).resolve().parents[2] / "web"
 # Cesium needs WebGL; SwiftShader gives headless Chromium a software GPU.
 CHROMIUM_ARGS = ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"]
+
+
+def unavailable(reason: str):
+    """Skip locally; fail where the viewer tests are required."""
+    if REQUIRED:
+        pytest.fail(f"{reason} (VIEWER_TESTS_REQUIRED is set)", pytrace=False)
+    pytest.skip(reason)
 
 
 class QuietHandler(SimpleHTTPRequestHandler):
@@ -33,16 +44,28 @@ class QuietHandler(SimpleHTTPRequestHandler):
 
 
 @pytest.fixture(scope="session")
-def site_url(tmp_path_factory):
-    """_site as pages.yml assembles it (web/ plus orbits.czml), on a free port."""
+def site_dir(tmp_path_factory):
+    """_site as pages.yml assembles it: web/ plus orbits.czml."""
     site = tmp_path_factory.mktemp("site")
     shutil.copytree(WEB_DIR, site, dirs_exist_ok=True)
     (site / "orbits.czml").write_text(json.dumps(build_czml(), separators=(",", ":")))
-    handler = functools.partial(QuietHandler, directory=str(site))
+    return site
+
+
+@pytest.fixture(scope="session")
+def site_czml(site_dir):
+    """The CZML packets the page loads (built once per session)."""
+    return json.loads((site_dir / "orbits.czml").read_text())
+
+
+@pytest.fixture(scope="session")
+def site_url(site_dir):
+    handler = functools.partial(QuietHandler, directory=str(site_dir))
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     yield f"http://127.0.0.1:{server.server_port}/"
     server.shutdown()
+    server.server_close()
 
 
 @pytest.fixture(scope="session")
@@ -54,13 +77,17 @@ def browser():
             try:  # no bundled Chromium: use an installed Google Chrome
                 b = p.chromium.launch(channel="chrome", args=CHROMIUM_ARGS)
             except sync_api.Error:
-                pytest.skip("no browser: run `playwright install chromium`")
+                unavailable("no browser: run `playwright install chromium`")
         yield b
         b.close()
 
 
 class Viewer:
-    """An open viewer page, with the console and page errors it produced."""
+    """An open viewer page, with the console and page errors it produced.
+
+    Talks to the page only through ``window.explorer``, the small test surface
+    main.js exposes, not through its internal names.
+    """
 
     def __init__(self, page):
         self.page = page
@@ -89,15 +116,10 @@ class Viewer:
 
     def set_time(self, iso):
         """Pause the clock at a UTC time and let the panel catch up."""
-        self.js(
-            """iso => {
-                viewer.clock.shouldAnimate = false;
-                viewer.clock.currentTime = Cesium.JulianDate.fromIso8601(iso);
-                lastLiveUpdate = 0;
-                updateLive(viewer.clock);
-            }""",
-            iso,
-        )
+        self.js("iso => explorer.setTime(iso)", iso)
+
+    def pick_station(self, name):
+        self.page.click(f"#station-picker button:text-is('{name}')")
 
 
 @pytest.fixture
