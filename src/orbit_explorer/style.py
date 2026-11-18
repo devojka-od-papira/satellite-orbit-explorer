@@ -3,12 +3,14 @@
 Colours are Apple's system colours. Each satellite keeps its colour everywhere
 (PNG figures, KML, CZML, the 3D viewer), keyed by NORAD ID rather than by list
 order. The four were chosen so every pair stays distinguishable with colour
-blindness (worst pair: CVD ΔE 18 in OKLab ×100, the target is ≥ 8).
+blindness, measured as the worst pair's CVD ΔE in OKLab ×100 (target ≥ 8):
+18.4 for the light variants on white, 14.5 for the dark variants.
 
 The typeface is Inter (SIL Open Font License, bundled in ``fonts/``), an open
 font close to Apple's SF Pro, which may only be used for Apple-platform UI.
 """
 
+import functools
 from pathlib import Path
 
 FONT_DIR = Path(__file__).parent / "fonts"
@@ -106,15 +108,37 @@ RC = {
 DOT = {"edgecolor": BACKGROUND, "linewidth": 1.5, "zorder": 4}
 
 
-def use() -> None:
-    """Register the bundled fonts and apply the style to matplotlib."""
-    import matplotlib.pyplot as plt
+@functools.cache
+def register_fonts() -> None:
+    """Add the bundled Inter files to matplotlib's font list, once per process."""
     from matplotlib import font_manager
 
     known = {f.fname for f in font_manager.fontManager.ttflist}
     for path in sorted(FONT_DIR.glob("*.ttf")):
         if str(path) not in known:
             font_manager.fontManager.addfont(str(path))
+
+
+def styled(plot):
+    """Decorator: draw inside the style without changing global rcParams,
+    so figures made afterwards (e.g. in a notebook) keep their own look."""
+
+    @functools.wraps(plot)
+    def wrapper(*args, **kwargs):
+        import matplotlib.pyplot as plt
+
+        register_fonts()
+        with plt.rc_context(RC):
+            return plot(*args, **kwargs)
+
+    return wrapper
+
+
+def use() -> None:
+    """Apply the style globally, for interactive use."""
+    import matplotlib.pyplot as plt
+
+    register_fonts()
     plt.rcParams.update(RC)
 
 
@@ -192,8 +216,8 @@ def dot_legend(ax, labels, colors, extra=(), **kwargs):
     return ax.legend(handles, labels, **options)
 
 
-def time_axis(ax, span_h: float = 24, step_h: int = 3) -> None:
-    """Hours of the day as 00:00 … 24:00."""
+def time_axis(ax, span_h: float, step_h: int = 3) -> None:
+    """Hours since the window start as 00:00, 03:00, … up to ``span_h``."""
     hours = range(0, int(span_h) + 1, step_h)
     ax.set_xlim(0, span_h)
     ax.set_xticks(list(hours), [f"{h:02d}:00" for h in hours])

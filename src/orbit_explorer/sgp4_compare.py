@@ -126,8 +126,8 @@ COMPONENTS = [
 ]
 
 
+@style.styled
 def plot_differences(path: Path) -> None:
-    style.use()
     t = time_grid_s()
     h = t / 3600
     sats = load_elements()
@@ -154,7 +154,7 @@ def plot_differences(path: Path) -> None:
         )
         ax.yaxis.tick_right()
         ax.yaxis.set_major_formatter("{x:.0f} km")
-        style.time_axis(ax, step_h=6)
+        style.time_axis(ax, SPAN_S / 3600, step_h=6)
     style.header(
         axes[0, 0],
         "Kepler vs SGP4",

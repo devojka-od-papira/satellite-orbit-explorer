@@ -15,6 +15,7 @@ from orbit_explorer.visibility import (
     look_angles,
     parse_station,
     satellite_look_angles,
+    with_mask_crossings,
 )
 
 T = time_grid_s()
@@ -124,3 +125,21 @@ def test_summary_and_cli():
     assert "NOVI SAD" in summary
     for sat in load_elements():
         assert sat["OBJECT_NAME"] in summary
+
+
+def test_mask_crossings_are_inserted_on_the_line():
+    x = np.array([0.0, 1.0, 2.0, 3.0])
+    el = np.array([0.0, 20.0, 20.0, 0.0])
+    x_c, el_c = with_mask_crossings(x, el, 10)
+    np.testing.assert_allclose(x_c, [0, 0.5, 1, 2, 2.5, 3])
+    np.testing.assert_allclose(el_c, [0, 10, 20, 20, 10, 0])
+
+
+def test_peak_just_below_mask_gets_no_visible_points():
+    """The figure must agree with find_passes: 9.7° is not a pass."""
+    x = np.arange(5.0)
+    el = np.array([0, 5, 9.7, 5, 0])
+    x_c, el_c = with_mask_crossings(x, el, 10)
+    assert len(x_c) == len(x)
+    assert not (el_c >= 10).any()
+    assert find_passes(x, el, np.zeros_like(x), mask=10) == []

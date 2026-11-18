@@ -8,7 +8,7 @@ import numpy as np
 from orbit_explorer import style
 from orbit_explorer.elements import load_elements
 from orbit_explorer.frames import ecef_to_geodetic, eci_to_ecef, gmst_rad
-from orbit_explorer.kepler import START, propagate_eci, time_grid_s
+from orbit_explorer.kepler import SPAN_S, START, propagate_eci, time_grid_s
 
 WORLD_MAP_PATH = Path("data/inputs/world_map.txt")
 OUTPUT_DIR = Path("outputs")
@@ -45,8 +45,8 @@ def break_at_dateline(
     return np.insert(lon, jumps + 1, np.nan), np.insert(lat, jumps + 1, np.nan)
 
 
+@style.styled
 def plot_ground_tracks(path: Path) -> None:
-    style.use()
     t = time_grid_s()
     theta = gmst_rad(t)
     sats = load_elements()
@@ -92,16 +92,18 @@ def plot_ground_tracks(path: Path) -> None:
     plt.close(fig)
 
 
+@style.styled
 def plot_speeds(path: Path) -> None:
-    style.use()
     t = time_grid_s()
     sats = load_elements()
     fig, ax = plt.subplots(figsize=(10, 5))
+    vmax = 0.0
     for sat in sats:
         _, v = propagate_eci(sat, t)
         ax.plot(t / 3600, v, color=style.sat_color(sat))
-    style.time_axis(ax)
-    ax.set_ylim(0, 8)
+        vmax = max(vmax, v.max())
+    style.time_axis(ax, SPAN_S / 3600)
+    ax.set_ylim(0, max(8, np.ceil(vmax)))  # room for a faster satellite
     ax.yaxis.tick_right()
     ax.yaxis.set_major_formatter("{x:.0f} km/s")
     style.header(
@@ -117,10 +119,10 @@ def plot_speeds(path: Path) -> None:
     plt.close(fig)
 
 
+@style.styled
 def plot_geo_vs_igso(path: Path) -> None:
     """LinkedIn landscape figure (1200x627 px): a geostationary dot versus an
     inclined figure-eight."""
-    style.use()
     t = time_grid_s()
     theta = gmst_rad(t)
     fig = plt.figure(figsize=(12, 6.27))

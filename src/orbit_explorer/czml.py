@@ -132,7 +132,7 @@ def satellite_packets(sat: dict, rgb: tuple[int, int, int]) -> list[dict]:
                 "text": name.split(" (")[0],
                 "font": "13px sans-serif",
                 "fillColor": {"rgba": rgba(rgb)},
-                "outlineColor": {"rgba": [255, 255, 255, 255]},
+                "outlineColor": {"rgba": [0, 0, 0, 255]},  # dark: bright labels
                 "outlineWidth": 2,
                 "style": "FILL_AND_OUTLINE",
                 "horizontalOrigin": "LEFT",

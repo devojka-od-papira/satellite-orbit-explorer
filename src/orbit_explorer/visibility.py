@@ -193,9 +193,21 @@ def kepler_shift(p: Pass, kepler: list[Pass]) -> str:
     return " / ".join(parts)
 
 
+def with_mask_crossings(
+    x: np.ndarray, el: np.ndarray, mask: float
+) -> tuple[np.ndarray, np.ndarray]:
+    """Insert the interpolated points where ``el`` crosses ``mask``, so a curve
+    drawn only where el >= mask starts and ends exactly on the mask line."""
+    above = el >= mask
+    i = np.nonzero(above[1:] != above[:-1])[0]  # crossing between i and i + 1
+    frac = (mask - el[i]) / (el[i + 1] - el[i])
+    x_cross = x[i] + frac * (x[i + 1] - x[i])
+    return np.insert(x, i + 1, x_cross), np.insert(el, i + 1, np.full(len(i), mask))
+
+
+@style.styled
 def plot_elevation(path: Path, station: Station = BELGRADE) -> None:
     """Elevation over the day; full colour only where the station sees it."""
-    style.use()
     t = time_grid_s()
     h = t / 3600
     sats = load_elements()
@@ -212,9 +224,10 @@ def plot_elevation(path: Path, station: Station = BELGRADE) -> None:
         color = style.sat_color(sat)
         _, el, _ = satellite_look_angles(sat, t, station)
         ax.plot(h, el, color=color, linewidth=1.2, alpha=0.3, zorder=2)
-        # a small overlap below the mask so the bright part meets the line
-        visible = np.where(el >= ELEVATION_MASK_DEG - 0.5, el, np.nan)
-        ax.plot(h, visible, color=color, linewidth=2.5, zorder=3)
+        # bright exactly where find_passes counts the satellite as visible
+        h_x, el_x = with_mask_crossings(h, el, ELEVATION_MASK_DEG)
+        visible = np.where(el_x >= ELEVATION_MASK_DEG, el_x, np.nan)
+        ax.plot(h_x, visible, color=color, linewidth=2.5, zorder=3)
     ax.annotate(
         f"{ELEVATION_MASK_DEG:.0f}° mask",
         xy=(6.2, ELEVATION_MASK_DEG),
@@ -223,7 +236,7 @@ def plot_elevation(path: Path, station: Station = BELGRADE) -> None:
         color=style.SECONDARY,
         fontsize=10,
     )
-    style.time_axis(ax)
+    style.time_axis(ax, SPAN_S / 3600)
     ax.set_ylim(-90, 90)
     ax.set_yticks([-90, -45, 0, 45, 90], ["−90°", "−45°", "0°", "45°", "90°"])
     ax.yaxis.tick_right()
@@ -241,9 +254,9 @@ def plot_elevation(path: Path, station: Station = BELGRADE) -> None:
     plt.close(fig)
 
 
+@style.styled
 def plot_skyplot(path: Path, station: Station = BELGRADE) -> None:
     """Polar sky view: north up, azimuth clockwise, zenith at the centre."""
-    style.use()
     t = time_grid_s()
     sats = load_elements()
     fig, ax = plt.subplots(figsize=(7, 7.6), subplot_kw={"projection": "polar"})

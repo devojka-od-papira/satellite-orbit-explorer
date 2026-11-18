@@ -42,13 +42,20 @@ def test_colour_conversions():
 
 
 def test_bundled_fonts_are_registered():
-    style.use()
+    style.register_fonts()
     names = {f.name for f in font_manager.fontManager.ttflist}
     assert {style.FONT, style.DISPLAY_FONT} <= names
-    assert plt.rcParams["font.family"] == [style.FONT]
     # no silent fallback to DejaVu Sans
     found = font_manager.findfont(style.FONT, fallback_to_default=False)
     assert str(style.FONT_DIR) in found
+
+
+def test_use_applies_the_style_globally():
+    try:
+        style.use()
+        assert plt.rcParams["font.family"] == [style.FONT]
+    finally:
+        plt.rcdefaults()
 
 
 def test_map_labels():
@@ -59,3 +66,13 @@ def test_map_labels():
         "180°",
     ]
     assert [style.lat_label(y) for y in (-30, 0, 45)] == ["30°S", "0°", "45°N"]
+
+
+def test_styled_figures_leave_global_settings_alone(tmp_path):
+    """A notebook figure drawn after ours must keep matplotlib's own look."""
+    from orbit_explorer.plots import plot_speeds
+
+    plt.rcdefaults()
+    before = dict(plt.rcParams)
+    plot_speeds(tmp_path / "speeds.png")
+    assert dict(plt.rcParams) == before
