@@ -10,9 +10,14 @@ dependencies = ["numpy", "matplotlib", "sgp4>=2.24"]
 
 [project.optional-dependencies]
 dev = ["pytest", "ruff", "pre-commit"]
+# The 3D viewer tests (tests/viewer); also needs `playwright install chromium`.
+viewer = ["pytest", "playwright>=1.40"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
 orbit_explorer = ["fonts/*.ttf", "fonts/OFL.txt"]
+
+[tool.pytest.ini_options]
+markers = ["viewer: opens the 3D viewer in a headless browser (needs the viewer extra)"]

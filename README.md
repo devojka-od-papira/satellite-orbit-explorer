@@ -153,4 +153,15 @@ Open Font License. Apple's SF Pro may only be used for Apple-platform UI.
     pre-commit install
     pytest
 
+The 3D viewer has its own tests in `tests/viewer`. They build the site,
+open it in headless Chromium with Playwright, and check the panel, the station
+picker, the passes and the live look angles against the Python results. CI
+runs them in a separate job. Locally:
+
+    pip install -e ".[viewer]"
+    playwright install chromium    # or skip it to use an installed Google Chrome
+    pytest tests/viewer
+
+Without Playwright, `pytest` skips them.
+
 Built during GNSS Academy's Space Career Week 2026.

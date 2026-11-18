@@ -601,4 +601,26 @@ async function main() {
   }
 }
 
+// A small, stable surface for tests/viewer and the browser console, so they
+// don't depend on this file's internal names.
+window.explorer = {
+  viewer,
+  get satellites() {
+    return satellites;
+  },
+  get stations() {
+    return stations;
+  },
+  get station() {
+    return station;
+  },
+  /** Pause the clock at an ISO 8601 UTC time and refresh the panel now. */
+  setTime(iso) {
+    viewer.clock.shouldAnimate = false;
+    viewer.clock.currentTime = Cesium.JulianDate.fromIso8601(iso);
+    lastLiveUpdate = 0;
+    updateLive(viewer.clock);
+  },
+};
+
 main();
