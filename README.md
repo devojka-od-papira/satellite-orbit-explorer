@@ -38,6 +38,14 @@ workshop reference values for the four satellites. That dataset (downloaded
 2026-11-10) is kept in `tests/data/`, and the period test runs against it,
 because fresh elements change: QZS-2's period moves after station-keeping.
 
+![Orbital speed of the four satellites over one day](docs/images/speeds.png)
+
+PULSAR-0 in low orbit is the fastest, at about 7.6 km/s. GALILEO 29 moves at
+about 3.7 km/s and SES-5 at about 3.1 km/s. Their orbits are close to circular,
+so their speed barely changes. QZS-2 has the same 24-hour period as SES-5, but
+its orbit is eccentric (e ≈ 0.076), so its speed swings by about 0.5 km/s over
+the day.
+
 ## Kepler vs SGP4
 GP elements are meant for SGP4, which adds Earth's oblateness (J2–J4), drag and,
 for high orbits, lunar and solar gravity. Comparing positions over the day
@@ -89,6 +97,14 @@ locally:
     python -m orbit_explorer.czml
     mkdir -p _site && cp web/* outputs/orbits.czml _site/
     python -m http.server 8000 -d _site    # then open http://localhost:8000
+
+## Style
+All figures share one look, set in `orbit_explorer.style` after Apple's chart
+design: Apple system colours, light gridlines, no frames, and a left-aligned
+header. Each satellite keeps its colour in every figure, in Google Earth and
+in the 3D viewer. The four colours stay distinguishable with colour blindness.
+The typeface is [Inter](https://github.com/rsms/inter), bundled under the SIL
+Open Font License. Apple's SF Pro may only be used for Apple-platform UI.
 
 ## Development
     pip install -e ".[dev]"

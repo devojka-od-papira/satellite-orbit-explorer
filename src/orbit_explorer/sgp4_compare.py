@@ -18,6 +18,7 @@ import numpy as np
 from sgp4 import omm
 from sgp4.api import SGP4_ERRORS, Satrec, jday
 
+from orbit_explorer import style
 from orbit_explorer.elements import load_elements
 from orbit_explorer.kepler import SPAN_S, START, propagate_eci, time_grid_s
 
@@ -118,30 +119,55 @@ def build_summary() -> str:
     return "\n".join(lines)
 
 
+COMPONENTS = [
+    ("Radial", style.RADIAL),
+    ("In-track", style.IN_TRACK),
+    ("Cross-track", style.CROSS_TRACK),
+]
+
+
+@style.styled
 def plot_differences(path: Path) -> None:
     t = time_grid_s()
+    h = t / 3600
     sats = load_elements()
-    fig, axes = plt.subplots(2, 2, figsize=(12, 7), sharex=True)
+    fig, axes = plt.subplots(2, 2, figsize=(12, 8), sharex=True)
+    fig.subplots_adjust(hspace=0.35, wspace=0.18)
     for ax, sat in zip(axes.flat, sats):
         c = compare(sat, t)
-        h = t / 3600
-        ax.plot(h, c["total"], color="black", linewidth=1.5, label="total")
-        for k, (label, color) in enumerate(
-            [("radial", "#1f77b4"), ("in-track", "#ff7f0e"), ("cross-track", "#2ca02c")]
-        ):
-            ax.plot(h, c["ric"][:, k], color=color, linewidth=1, label=label)
-        ax.axhline(0, color="0.6", linewidth=0.5)
-        ax.set_title(
-            f"{sat['OBJECT_NAME']}  (epoch {epoch_age_days(sat):+.2f} d)", fontsize=10
+        ax.axhline(0, color=style.SEPARATOR, linewidth=1, zorder=1)
+        for k, (_, color) in enumerate(COMPONENTS):
+            ax.plot(h, c["ric"][:, k], color=color, linewidth=1.5, zorder=2)
+        ax.plot(h, c["total"], color=style.LABEL, linewidth=2.2, zorder=3)
+        ax.set_title(style.short_name(sat))
+        hours_before = epoch_age_days(sat) * 24
+        when = "before" if hours_before >= 0 else "after"
+        ax.annotate(
+            f"GP epoch {abs(hours_before):.1f} h {when} 00:00",
+            xy=(1, 1),
+            xycoords="axes fraction",
+            xytext=(0, 10),
+            textcoords="offset points",
+            ha="right",
+            color=style.SECONDARY,
+            fontsize=10,
         )
-        ax.set_ylabel("Kepler − SGP4 [km]")
-        ax.grid(alpha=0.3)
-    for ax in axes[1]:
-        ax.set_xlabel(f"Hours since {START:%Y-%m-%d %H:%M} UTC")
-    axes[0, 0].legend(fontsize=8, loc="upper left")
-    fig.suptitle("Two-body Kepler vs SGP4/SDP4: position difference over the day")
-    fig.tight_layout()
-    fig.savefig(path, dpi=150)
+        ax.yaxis.tick_right()
+        ax.yaxis.set_major_formatter("{x:.0f} km")
+        style.time_axis(ax, SPAN_S / 3600, step_h=6)
+    style.header(
+        axes[0, 0],
+        "Kepler vs SGP4",
+        f"Two-body minus SGP4/SDP4 position, {style.date_label(START)}, UTC",
+        caption="Model comparison",
+        pad=36,  # above the panel title
+    )
+    style.dot_legend(
+        axes[1, 0],
+        ["Total"] + [name for name, _ in COMPONENTS],
+        [style.LABEL] + [color for _, color in COMPONENTS],
+    )
+    fig.savefig(path)
     plt.close(fig)
 
 

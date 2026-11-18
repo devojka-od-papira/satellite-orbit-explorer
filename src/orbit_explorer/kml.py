@@ -5,13 +5,13 @@ from xml.sax.saxutils import escape
 
 import numpy as np
 
+from orbit_explorer import style
 from orbit_explorer.elements import load_elements
 from orbit_explorer.frames import ecef_to_geodetic, eci_to_ecef, gmst_rad
 from orbit_explorer.kepler import START, propagate_eci, time_grid_s
 
 OUTPUT_PATH = Path("outputs/orbits.kml")
 KML_STEP = 12  # keep every 12th epoch (60 s) so Google Earth stays fast
-COLORS = ["ffb4771f", "ff0e7fff", "ff2ca02c", "ff2827d6"]  # KML order: aabbggrr
 
 
 def coordinates(lat: np.ndarray, lon: np.ndarray, h_km: np.ndarray) -> str:
@@ -45,7 +45,8 @@ def build_kml() -> str:
     theta = gmst_rad(t)
     theta0 = np.full_like(t, theta[0])  # Earth frozen at the start epoch
     tracks, orbits_ecef, orbits_eci = [], [], []
-    for sat, color in zip(load_elements(), COLORS):
+    for sat in load_elements():
+        color = style.kml_color(style.sat_color(sat, dark=True))  # dark globe
         name = sat["OBJECT_NAME"]
         pos_eci, _ = propagate_eci(sat, t)
 

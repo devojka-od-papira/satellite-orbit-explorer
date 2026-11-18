@@ -5,13 +5,21 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
+from orbit_explorer import style
 from orbit_explorer.elements import load_elements
 from orbit_explorer.frames import ecef_to_geodetic, eci_to_ecef, gmst_rad
-from orbit_explorer.kepler import START, propagate_eci, time_grid_s
+from orbit_explorer.kepler import SPAN_S, START, propagate_eci, time_grid_s
 
 WORLD_MAP_PATH = Path("data/inputs/world_map.txt")
 OUTPUT_DIR = Path("outputs")
-GEO_IGSO = {38652: ("SES-5", "#2ca02c"), 42738: ("QZS-2", "#d62728")}
+GEO_IGSO = (38652, 42738)  # SES-5, QZS-2
+# Keeps annotation text readable over coastlines.
+LABEL_BOX = {
+    "boxstyle": "round,pad=0.3",
+    "fc": style.BACKGROUND,
+    "ec": "none",
+    "alpha": 0.85,
+}
 
 
 def load_world_map(path: Path = WORLD_MAP_PATH) -> list[np.ndarray]:
@@ -37,122 +45,144 @@ def break_at_dateline(
     return np.insert(lon, jumps + 1, np.nan), np.insert(lat, jumps + 1, np.nan)
 
 
+@style.styled
 def plot_ground_tracks(path: Path) -> None:
     t = time_grid_s()
     theta = gmst_rad(t)
-    fig, ax = plt.subplots(figsize=(12, 6))
-    for seg in load_world_map():
-        ax.plot(seg[:, 1], seg[:, 0], color="0.6", linewidth=0.5)
-    for sat in load_elements():
+    sats = load_elements()
+    fig, ax = plt.subplots(figsize=(12, 6.6))
+    style.map_axes(ax, load_world_map(), range(-180, 181, 60), range(-90, 91, 30))
+    for sat in sats:
+        color = style.sat_color(sat)
         pos_eci, _ = propagate_eci(sat, t)
         lat, lon, _ = ecef_to_geodetic(eci_to_ecef(pos_eci, theta))
-        lon_b, lat_b = break_at_dateline(lon, lat)
-        line = ax.plot(lon_b, lat_b, linewidth=1, label=sat["OBJECT_NAME"])[0]
-        color = line.get_color()
         if np.ptp(lon) < 1:  # geostationary: the track is a single point
-            ax.scatter(
-                lon.mean(), lat.mean(), s=80, color=color, edgecolor="black", zorder=3
-            )
+            ax.scatter(lon.mean(), lat.mean(), s=110, color=color, **style.DOT)
             continue
-        # start: filled dot, end: hollow ring, so the direction of motion is visible
-        ax.scatter(lon[0], lat[0], s=50, color=color, edgecolor="black", zorder=3)
+        lon_b, lat_b = break_at_dateline(lon, lat)
+        ax.plot(lon_b, lat_b, color=color, linewidth=1.2, zorder=2)
+        # start: filled dot, end: ring, so the direction of motion is visible
+        ax.scatter(lon[0], lat[0], s=60, color=color, **style.DOT)
         ax.scatter(
-            lon[-1], lat[-1], s=50, facecolor="white", edgecolor=color, lw=2, zorder=3
+            lon[-1],
+            lat[-1],
+            s=50,
+            facecolor=style.BACKGROUND,
+            edgecolor=color,
+            linewidth=2,
+            zorder=4,
         )
-    ax.scatter([], [], s=50, color="0.5", edgecolor="black", label="Start (00:00)")
-    ax.scatter(
-        [], [], s=50, facecolor="white", edgecolor="0.5", lw=2, label="End (24:00)"
+    ax.set(xlim=(-180, 180), ylim=(-90, 90), aspect="equal")
+    style.header(
+        ax,
+        "Ground tracks",
+        f"{style.date_label(START)} · 24 h from 00:00 UTC · two-body Kepler",
+        caption="Orbits",
     )
-    ax.set(
-        xlim=(-180, 180),
-        ylim=(-90, 90),
-        xlabel="Longitude [deg]",
-        ylabel="Latitude [deg]",
-        title=f"Ground tracks, {START:%Y-%m-%d} (24 h)",
+    style.dot_legend(
+        ax,
+        [style.short_name(s) for s in sats],
+        [style.sat_color(s) for s in sats],
+        extra=[
+            (style.dot(style.SECONDARY), "Start"),
+            (style.dot(style.SECONDARY, hollow=True), "End"),
+        ],
     )
-    ax.legend(loc="lower left", fontsize=8)
-    ax.grid(alpha=0.3)
-    fig.savefig(path, dpi=150, bbox_inches="tight")
+    fig.savefig(path)
     plt.close(fig)
 
 
+@style.styled
 def plot_speeds(path: Path) -> None:
     t = time_grid_s()
+    sats = load_elements()
     fig, ax = plt.subplots(figsize=(10, 5))
-    for sat in load_elements():
+    vmax = 0.0
+    for sat in sats:
         _, v = propagate_eci(sat, t)
-        ax.plot(t / 3600, v, label=sat["OBJECT_NAME"])
-    ax.set(
-        xlabel=f"Hours since {START:%Y-%m-%d %H:%M} UTC",
-        ylabel="Speed [km/s]",
-        title="Orbital speed over the day",
+        ax.plot(t / 3600, v, color=style.sat_color(sat))
+        vmax = max(vmax, v.max())
+    style.time_axis(ax, SPAN_S / 3600)
+    ax.set_ylim(0, max(8, np.ceil(vmax)))  # room for a faster satellite
+    ax.yaxis.tick_right()
+    ax.yaxis.set_major_formatter("{x:.0f} km/s")
+    style.header(
+        ax,
+        "Orbital speed",
+        f"{style.date_label(START)} · UTC · two-body Kepler",
+        caption="Orbits",
     )
-    ax.legend(fontsize=8)
-    ax.grid(alpha=0.3)
-    fig.savefig(path, dpi=150, bbox_inches="tight")
+    style.dot_legend(
+        ax, [style.short_name(s) for s in sats], [style.sat_color(s) for s in sats]
+    )
+    fig.savefig(path)
     plt.close(fig)
 
 
+@style.styled
 def plot_geo_vs_igso(path: Path) -> None:
     """LinkedIn landscape figure (1200x627 px): a geostationary dot versus an
     inclined figure-eight."""
     t = time_grid_s()
     theta = gmst_rad(t)
-    fig, ax = plt.subplots(figsize=(12, 6.27))
-    fig.subplots_adjust(top=0.9, bottom=0.18)
-    for seg in load_world_map():
-        ax.plot(seg[:, 1], seg[:, 0], color="0.65", linewidth=0.6)
+    fig = plt.figure(figsize=(12, 6.27))
+    ax = fig.add_axes((0.06, 0.12, 0.88, 0.66))
+    style.map_axes(ax, load_world_map(), range(-30, 181, 30), range(-45, 61, 15))
 
     tracks = {}
     for sat in load_elements():
         if sat["NORAD_CAT_ID"] not in GEO_IGSO:
             continue
-        name, color = GEO_IGSO[sat["NORAD_CAT_ID"]]
         pos_eci, _ = propagate_eci(sat, t)
         lat, lon, _ = ecef_to_geodetic(eci_to_ecef(pos_eci, theta))
-        tracks[name] = (lat, lon)
-        ax.plot(lon, lat, color=color, linewidth=2.5)
+        tracks[sat["NORAD_CAT_ID"]] = (lat, lon, style.sat_color(sat))
 
-    lat, lon = tracks["SES-5"]
-    ax.scatter(
-        lon.mean(), lat.mean(), s=160, color="#2ca02c", edgecolor="black", zorder=3
-    )
-    ax.annotate(
-        "SES-5: geostationary,\nstays at 5° E all day",
-        xy=(lon.mean(), lat.mean()),
-        xytext=(-37, -40),
-        fontsize=14,
-        arrowprops={"arrowstyle": "->", "lw": 1.5},
-    )
-
-    lat, lon = tracks["QZS-2"]
+    lat, lon, color = tracks[42738]
+    ax.plot(lon, lat, color=color, linewidth=3, zorder=2)
     top = np.argmax(lat)
     ax.annotate(
         "QZS-2: same ~24 h period,\ntilted 39° → figure-eight",
         xy=(lon[top], lat[top]),
-        xytext=(45, 50),
+        xytext=(52, 47),
         fontsize=14,
-        arrowprops={"arrowstyle": "->", "lw": 1.5},
+        color=style.LABEL,
+        bbox=LABEL_BOX,
+        arrowprops={"arrowstyle": "-", "color": style.SECONDARY, "lw": 1},
     )
 
-    ax.set_xlim(-40, 190)
-    ax.set_ylim(-50, 65)
-    ax.set_aspect("equal")
-    ax.set_title("Same orbital period, different inclination", fontsize=18, pad=12)
-    ax.set_xlabel("Longitude [deg]", fontsize=12)
-    ax.set_ylabel("Latitude [deg]", fontsize=12)
-    ax.tick_params(labelsize=10)
-    ax.grid(alpha=0.3)
+    lat, lon, color = tracks[38652]
+    ax.scatter(lon.mean(), lat.mean(), s=220, color=color, **style.DOT)
+    ax.annotate(
+        "SES-5: geostationary,\nstays at 5° E all day",
+        xy=(lon.mean(), lat.mean()),
+        xytext=(-27, -38),
+        fontsize=14,
+        color=style.LABEL,
+        bbox=LABEL_BOX,
+        arrowprops={
+            "arrowstyle": "-",
+            "color": style.SECONDARY,
+            "lw": 1,
+            "shrinkB": 9,
+        },
+    )
+
+    ax.set(xlim=(-40, 190), ylim=(-50, 65), aspect="equal")
+    style.header(
+        ax,
+        "Same orbital period, different inclination",
+        f"24 h propagated from CelesTrak data, {style.date_label(START)}",
+        caption="Geostationary vs inclined geosynchronous",
+    )
     fig.text(
         0.5,
-        0.04,
-        f"24 h propagated from CelesTrak data, {START.day} {START:%b %Y} · "
+        0.025,
         "github.com/devojka-od-papira/satellite-orbit-explorer",
         ha="center",
         fontsize=9,
-        color="0.4",
+        color=style.SECONDARY,
     )
-    fig.savefig(path, dpi=100)
+    fig.savefig(path, dpi=100, bbox_inches=fig.bbox_inches)  # exact 1200x627
     plt.close(fig)
 
 
