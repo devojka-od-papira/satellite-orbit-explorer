@@ -41,6 +41,20 @@ Belgrade. Merging it publishes the 3D viewer for the new day. The README
 figures and numbers stay at their documented date. The workflow can also be
 started by hand from the Actions tab.
 
+- **Needs a repository setting.** To let the workflow open PRs, turn on "Allow
+  GitHub Actions to create and approve pull requests" under Settings → Actions
+  → General.
+- **Stale data is flagged.** If an element set is more than 3 days from the
+  window start, the PR title ends in "stale elements" and the description
+  starts with a warning.
+- **Your commits are safe.** If the open refresh PR has commits that the
+  workflow did not make, it skips that day and leaves a comment instead of
+  force-pushing over them.
+- **Rate limit.** It does nothing if the last download was less than 2 hours
+  ago.
+- **Local preview.** `DRY_RUN=1 .github/scripts/daily_refresh.sh` previews the
+  PR, then puts the data back.
+
 ## Validation
 All periods, perigee/apogee altitudes and speed ranges matched the GNSS Academy
 workshop reference values for the four satellites. That dataset (downloaded
