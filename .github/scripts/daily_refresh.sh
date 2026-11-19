@@ -79,6 +79,7 @@ python -m pytest -q
 # 3. What the new day looks like, for the PR description.
 export MPLBACKEND=Agg
 python -m orbit_explorer.sgp4_compare > /dev/null
+python -m orbit_explorer.j2 > /dev/null
 python -m orbit_explorer.visibility > /dev/null
 DAY=$(python -c "from orbit_explorer.elements import load_reference_start as s; print(f'{s():%Y-%m-%d}')")
 TITLE="Refresh GP data from CelesTrak ($DAY)"
@@ -117,6 +118,13 @@ $(cat "$WORK/fetch.txt")
 
 \`\`\`
 $(cat outputs/sgp4_comparison.txt)
+\`\`\`
+</details>
+
+<details><summary>Two-body vs J2</summary>
+
+\`\`\`
+$(cat outputs/j2_comparison.txt)
 \`\`\`
 </details>
 

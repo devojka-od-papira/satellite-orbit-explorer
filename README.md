@@ -18,6 +18,8 @@ passes over a ground station (Belgrade, Tokyo, Sydney or Quito).
 - Exports CZML for CesiumJS: animated satellites, ground tracks and inertial orbits,
   for both Kepler and SGP4
 - Compares the two-body Kepler model with SGP4/SDP4 over the same day
+- Integrates orbits numerically with Earth's oblateness (J2, RK4) and shows
+  PULSAR-0's sun-synchronous plane drift
 - Computes look angles and passes from a ground station, with a sky plot
 
 ## Data
@@ -37,10 +39,10 @@ hours, so it refuses to download again within 2 hours of the last download
 A GitHub Actions workflow (`.github/workflows/refresh.yml`) does this every
 day at 03:17 UTC. It runs the tests on the new data and opens a pull request,
 or updates the open one, titled "Refresh GP data from CelesTrak (date)". The
-PR description lists that day's Kepler vs SGP4 differences and passes over
-Belgrade. Merging it publishes the 3D viewer for the new day. The README
-figures and numbers stay at their documented date. The workflow can also be
-started by hand from the Actions tab.
+PR description lists that day's Kepler vs SGP4 and two-body vs J2
+differences and passes over Belgrade. Merging it publishes the 3D viewer for
+the new day. The README figures and numbers stay at their documented date.
+The workflow can also be started by hand from the Actions tab.
 
 - **Needs a repository setting.** To let the workflow open PRs, turn on "Allow
   GitHub Actions to create and approve pull requests" under Settings → Actions
@@ -89,6 +91,43 @@ for high orbits, lunar and solar gravity. Comparing positions over the day
 
 ![Kepler minus SGP4 position difference over the day](docs/images/sgp4_differences.png)
 
+## Earth's oblateness: a J2 propagator
+`orbit_explorer.j2` integrates the equations of motion numerically (classic
+fourth-order Runge-Kutta, 5 s step) with the point-mass gravity plus J2, the
+largest term of the Earth's equatorial bulge. Two-body and J2 runs both start
+from SGP4's position and velocity at 00:00, so the difference from SGP4 shows
+only what each force model leaves out (GP data of 2026-11-17):
+
+- **PULSAR-0 (LEO): J2 is almost everything.** A point-mass Earth is about
+  2,200 km away from SGP4 after a day; with J2 it stays within about 3 km. The
+  rest is drag and higher harmonics, and it is mostly in-track, i.e. timing.
+- **Why a point mass started from the true state is even worse than Kepler
+  from the GP elements** (about 340 km, above): the instantaneous orbit at
+  00:00 includes J2's short-period wobble. Its semi-major axis is 12 km short of
+  the mean one, so its period is 15 s too short, and that adds up every orbit.
+  This is why GP elements are *mean* elements.
+- **GALILEO 29, SES-5 and QZS-2:** J2 brings the error down from 10–15 km to
+  1–5 km. Higher up, the Moon and the Sun matter more, and SDP4 includes them.
+  J2 helps SES-5 (GEO) the least, and for GALILEO 29 and QZS-2 what is left is
+  mostly cross-track: the Moon and the Sun tilt their orbital planes.
+- **Constants.** The propagator uses WGS84, while SGP4 and the GP elements use
+  the older WGS72. The summary also runs J2 with WGS72: the constants alone move
+  the 24-hour result by up to about 1 km (PULSAR-0: 2.1 vs 3.3 km).
+- **PULSAR-0 is sun-synchronous.** J2 turns its orbital plane eastward by
+  +0.996° a day, within 0.1% of the first-order theory and 1% of the Sun's
+  0.986° a day. Its plane keeps the same angle to the Sun all year, so it passes
+  over each place at the same local time.
+
+![Distance from SGP4 for a point-mass Earth and with J2](docs/images/j2_differences.png)
+
+![PULSAR-0's ascending node turning with the Sun](docs/images/j2_node_drift.png)
+
+The tests check the physics, not just the numbers:
+- the integrator against the exact circular orbit (under a metre a day);
+- energy and the polar angular momentum, which J2 conserves (drift below 1e-10);
+- the acceleration against the gradient of the J2 potential;
+- the node drift against the secular theory for three satellites.
+
 ## Visibility from a ground station
 `orbit_explorer.visibility` turns SGP4 positions into azimuth, elevation and
 range for a station (Belgrade by default) and lists the passes above a 10°
@@ -123,6 +162,7 @@ Tokyo, QZS-2 traces its figure eight high in the southern sky and stays above
     python -m orbit_explorer.kml
     python -m orbit_explorer.czml
     python -m orbit_explorer.sgp4_compare
+    python -m orbit_explorer.j2
     python -m orbit_explorer.visibility    # Belgrade
     python -m orbit_explorer.visibility --station tokyo    # or sydney, quito
     python -m orbit_explorer.visibility --name "Novi Sad" --lat 45.25 --lon 19.84 --height 80
