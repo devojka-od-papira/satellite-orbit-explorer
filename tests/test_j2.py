@@ -6,11 +6,16 @@ import pytest
 from orbit_explorer.elements import MU_EARTH_KM3_S2, R_EARTH_KM, load_elements
 from orbit_explorer.j2 import (
     J2,
+    MODELS,
     SUN_SYNC_DEG_DAY,
+    WGS72,
+    WGS84,
     acceleration,
     build_summary,
     compare,
+    compare_all,
     energy,
+    is_sun_synchronous,
     j2_secular_rates,
     node_drift,
     osculating_elements,
@@ -25,8 +30,8 @@ T = time_grid_s()
 
 @pytest.fixture(scope="module")
 def results():
-    """One day of two-body and J2 propagation for every satellite (~5 s)."""
-    return {norad: compare(sat, T) for norad, sat in SATS.items()}
+    """One day of every model for every satellite, all in one batch."""
+    return compare_all(list(SATS.values()), T)
 
 
 def circular_state(a_km: float, incl_deg: float = 0.0):
@@ -110,6 +115,40 @@ def test_halving_the_step_changes_little():
     assert np.linalg.norm(one - two, axis=1).max() < 1e-4  # 10 cm
 
 
+def test_empty_grid_gives_empty_arrays():
+    r0, v0 = circular_state(7000.0)
+    r, v = propagate(r0, v0, np.array([]))
+    assert r.shape == (0, 3) and v.shape == (0, 3)
+
+
+def test_only_the_step_matters_not_the_absolute_times():
+    r0, v0 = circular_state(7000.0, incl_deg=50)
+    from_zero, _ = propagate(r0, v0, T[:200])
+    shifted, _ = propagate(r0, v0, T[:200] + 12345.0)
+    np.testing.assert_array_equal(from_zero, shifted)
+
+
+def test_a_batch_of_orbits_matches_one_at_a_time():
+    states = [circular_state(a, i) for a, i in ((7000.0, 98), (26560.0, 55))]
+    r0 = np.array([r for r, _ in states])
+    v0 = np.array([v for _, v in states])
+    t = T[:500]
+    r_batch, v_batch = propagate(r0, v0, t)
+    assert r_batch.shape == (len(t), 2, 3)
+    for k, (r, v) in enumerate(states):
+        r_one, v_one = propagate(r, v, t)
+        np.testing.assert_allclose(r_batch[:, k], r_one, rtol=1e-13)
+        np.testing.assert_allclose(v_batch[:, k], v_one, rtol=1e-13)
+
+
+def test_compare_one_satellite_matches_the_batch(results):
+    t = T[:300]
+    one = compare(SATS[GALILEO], t)
+    batch = compare_all(list(SATS.values()), t)[GALILEO]
+    for key, _, _, _ in MODELS:
+        np.testing.assert_allclose(one[key]["total"], batch[key]["total"], atol=1e-9)
+
+
 def test_non_uniform_grid_is_refused():
     r0, v0 = circular_state(7000.0)
     with pytest.raises(ValueError, match="uniform"):
@@ -124,6 +163,24 @@ def test_osculating_elements_of_a_known_orbit():
     assert el["e"] == pytest.approx(0, abs=1e-12)
     assert el["i"] == pytest.approx(30)
     assert el["raan"] == pytest.approx(0, abs=1e-9)  # node on the +x axis
+
+
+def test_constants():
+    assert WGS84.mu == MU_EARTH_KM3_S2 and WGS84.radius_km == R_EARTH_KM
+    assert J2 == WGS84.j2
+    # SGP4's WGS72: the values in the sgp4 library
+    from sgp4.earth_gravity import wgs72
+
+    assert WGS72.mu == wgs72.mu
+    assert WGS72.radius_km == wgs72.radiusearthkm
+    assert WGS72.j2 == wgs72.j2
+
+
+def test_constants_shift_the_result_by_about_a_kilometre_at_most(results):
+    """The summary's WGS72 row: same J2 model, SGP4's constants."""
+    for res in results.values():
+        gap = np.abs(res["j2_wgs72"]["total"] - res["j2"]["total"]).max()
+        assert 0 < gap < 2  # km: real, but small next to what J2 itself does
 
 
 def test_secular_rates_textbook_cases():
@@ -150,6 +207,20 @@ def test_pulsar_is_sun_synchronous(results):
     numerical, _, incl = node_drift(results[PULSAR], T)
     assert 96 < incl < 99  # retrograde, as sun-synchronous LEO orbits are
     assert numerical == pytest.approx(SUN_SYNC_DEG_DAY, rel=0.02)
+    assert is_sun_synchronous(numerical)
+
+
+@pytest.mark.parametrize("norad", [GALILEO, QZS2], ids=["galileo", "qzs2"])
+def test_other_orbits_are_not_called_sun_synchronous(results, norad):
+    numerical, _, _ = node_drift(results[norad], T)
+    assert not is_sun_synchronous(numerical)
+
+
+def test_sun_synchronous_threshold():
+    assert is_sun_synchronous(0.9856)
+    assert is_sun_synchronous(0.996)
+    assert not is_sun_synchronous(-5.0)  # the ISS turns westward
+    assert not is_sun_synchronous(0.9)
 
 
 def test_j2_explains_most_of_sgp4_for_low_earth_orbit(results):
@@ -166,10 +237,28 @@ def test_j2_is_closer_to_sgp4_than_a_point_mass_by_the_end(results, norad):
     assert res["j2"]["total"][-1] < res["two_body"]["total"][-1]
 
 
-def test_both_models_start_on_sgp4(results):
+def test_geostationary_gains_least_from_j2(results):
+    """At GEO the Moon and the Sun matter more than the bulge, so J2 helps
+    SES-5 the least (LEO: ~1000x closer to SGP4)."""
+
+    def gain(norad):
+        res = results[norad]
+        return res["two_body"]["total"][-1] / res["j2"]["total"][-1]
+
+    assert gain(SES5) == min(gain(n) for n in SATS)
+    assert gain(PULSAR) > 100
+
+
+def test_j2_difference_from_sgp4_is_mostly_in_track_in_leo(results):
+    """What J2 leaves out (drag, higher harmonics) shows up as timing."""
+    radial, in_track, cross = np.abs(results[PULSAR]["j2"]["ric"]).max(axis=0)
+    assert in_track > radial and in_track > cross
+
+
+def test_all_models_start_on_sgp4(results):
     for res in results.values():
-        assert res["two_body"]["total"][0] == 0
-        assert res["j2"]["total"][0] == 0
+        for key, _, _, _ in MODELS:
+            assert res[key]["total"][0] == 0
 
 
 def test_summary_lists_every_satellite_and_the_sun_rate(results):
@@ -178,4 +267,6 @@ def test_summary_lists_every_satellite_and_the_sun_rate(results):
         assert sat["OBJECT_NAME"] in summary
     assert f"{SUN_SYNC_DEG_DAY:+.4f}" in summary
     assert "SES-5's node is ill-defined" in summary
-    assert SES5 in results
+    assert "Constants: WGS84" in summary
+    assert "J2 WGS72" in summary
+    assert "Largest component of the J2 difference" in summary

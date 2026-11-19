@@ -100,7 +100,7 @@ only what each force model leaves out (GP data of 2026-11-17):
 
 - **PULSAR-0 (LEO): J2 is almost everything.** A point-mass Earth is about
   2,200 km away from SGP4 after a day; with J2 it stays within about 3 km. The
-  rest is drag and higher harmonics.
+  rest is drag and higher harmonics, and it is mostly in-track, i.e. timing.
 - **Why a point mass started from the true state is even worse than Kepler
   from the GP elements** (about 340 km, above): the instantaneous orbit at
   00:00 includes J2's short-period wobble. Its semi-major axis is 12 km short of
@@ -108,6 +108,11 @@ only what each force model leaves out (GP data of 2026-11-17):
   This is why GP elements are *mean* elements.
 - **GALILEO 29, SES-5 and QZS-2:** J2 brings the error down from 10–15 km to
   1–5 km. Higher up, the Moon and the Sun matter more, and SDP4 includes them.
+  J2 helps SES-5 (GEO) the least, and for GALILEO 29 and QZS-2 what is left is
+  mostly cross-track: the Moon and the Sun tilt their orbital planes.
+- **Constants.** The propagator uses WGS84, while SGP4 and the GP elements use
+  the older WGS72. The summary also runs J2 with WGS72: the constants alone move
+  the 24-hour result by up to about 1 km (PULSAR-0: 2.1 vs 3.3 km).
 - **PULSAR-0 is sun-synchronous.** J2 turns its orbital plane eastward by
   +0.996° a day, within 0.1% of the first-order theory and 1% of the Sun's
   0.986° a day. Its plane keeps the same angle to the Sun all year, so it passes
