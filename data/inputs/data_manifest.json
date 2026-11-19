@@ -1,41 +1,41 @@
 {
-  "assembled_on_utc": "2026-11-17",
-  "retrieved_utc": "2026-11-17T18:20:03Z",
+  "assembled_on_utc": "2026-11-19",
+  "retrieved_utc": "2026-11-19T10:04:32Z",
   "format": "GP JSON using OMM field names (native CelesTrak API download, 4 satellites)",
-  "provenance_note": "Native CelesTrak GP JSON, one query per satellite (gp.php?CATNR=<id>&FORMAT=JSON), retrieved on 2026-11-17. Epochs range from 2026-11-16 09:41 to 2026-11-17 12:20 UTC. No orbital model conversion was performed.",
-  "reference_start_utc": "2026-11-17T00:00:00Z",
+  "provenance_note": "Native CelesTrak GP JSON, one query per satellite (gp.php?CATNR=<id>&FORMAT=JSON), retrieved on 2026-11-19. Epochs range from 2026-11-16 09:41 to 2026-11-19 02:54 UTC. No orbital model conversion was performed.",
+  "reference_start_utc": "2026-11-19T00:00:00Z",
   "source_records": [
     {
       "norad_cat_id": 64541,
       "object_name": "PULSAR-0",
-      "epoch_utc": "2026-11-17T06:41:49.094016Z",
+      "epoch_utc": "2026-11-19T02:54:18.510912Z",
       "source_url": "https://celestrak.org/NORAD/elements/gp.php?CATNR=64541&FORMAT=JSON",
       "source_representation": "Native CelesTrak GP JSON (OMM field names)",
       "tle_lines_same_element_set": [
-        "1 64541U 25135P   26321.27904044  .00003301  00000+0  15183-3 0  9997",
-        "2 64541  97.4835  74.6863 0003606  35.7359 324.4117 15.21045076 78096"
+        "1 64541U 25135P   26323.12104758  .00003505  00000+0  16096-3 0  9997",
+        "2 64541  97.4834  76.5163 0003451  30.6399 329.5037 15.21057820 78373"
       ]
     },
     {
       "norad_cat_id": 59598,
       "object_name": "GSAT0225 (GALILEO 29)",
-      "epoch_utc": "2026-11-17T12:20:18.570048Z",
+      "epoch_utc": "2026-11-18T16:19:02.883072Z",
       "source_url": "https://celestrak.org/NORAD/elements/gp.php?CATNR=59598&FORMAT=JSON",
       "source_representation": "Native CelesTrak GP JSON (OMM field names)",
       "tle_lines_same_element_set": [
-        "1 59598U 24079A   26321.51410382  .00000043  00000+0  00000+0 0  9991",
-        "2 59598  55.2249  96.7961 0001945 163.2128 202.8114  1.70474718 15930"
+        "1 59598U 24079A   26322.67989448  .00000046  00000+0  00000+0 0  9996",
+        "2 59598  55.2257  96.7637 0001915 163.3168 198.1828  1.70474690 15951"
       ]
     },
     {
       "norad_cat_id": 38652,
       "object_name": "SES-5",
-      "epoch_utc": "2026-11-17T08:33:04.212864Z",
+      "epoch_utc": "2026-11-17T23:50:38.595264Z",
       "source_url": "https://celestrak.org/NORAD/elements/gp.php?CATNR=38652&FORMAT=JSON",
       "source_representation": "Native CelesTrak GP JSON (OMM field names)",
       "tle_lines_same_element_set": [
-        "1 38652U 12036A   26321.35629876  .00000050  00000+0  00000+0 0  9999",
-        "2 38652   0.0476  29.1532 0001715 221.2674 299.2887  1.00272952 45993"
+        "1 38652U 12036A   26321.99350226  .00000052  00000+0  00000+0 0  9991",
+        "2 38652   0.0485  31.5287 0001745 218.6851 169.5205  1.00273206 45993"
       ]
     },
     {
