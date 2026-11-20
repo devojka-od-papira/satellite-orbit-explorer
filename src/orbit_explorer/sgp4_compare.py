@@ -33,9 +33,12 @@ def satrec(sat: dict) -> Satrec:
     return rec
 
 
-def propagate_sgp4(sat: dict, t_s: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """TEME positions [km] and velocities [km/s] at times t_s after START."""
-    jd0, fr0 = jday(START.year, START.month, START.day, 0, 0, 0)
+def propagate_sgp4(
+    sat: dict, t_s: np.ndarray, start: datetime = START
+) -> tuple[np.ndarray, np.ndarray]:
+    """TEME positions [km] and velocities [km/s] at times t_s after ``start``
+    (midnight UTC; by default the window start of the current GP data)."""
+    jd0, fr0 = jday(start.year, start.month, start.day, 0, 0, 0)
     err, r, v = satrec(sat).sgp4_array(np.full_like(t_s, jd0), fr0 + t_s / 86400)
     if np.any(err):
         code = int(err[np.nonzero(err)[0][0]])

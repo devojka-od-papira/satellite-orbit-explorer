@@ -27,6 +27,7 @@ with those, which alone moves the result by up to about a kilometre a day.
 """
 
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -184,12 +185,14 @@ MODELS = (
 )
 
 
-def compare_all(sats: list[dict], t_s: np.ndarray) -> dict[int, dict]:
+def compare_all(
+    sats: list[dict], t_s: np.ndarray, start: datetime = START
+) -> dict[int, dict]:
     """For each satellite, the MODELS runs from SGP4's state at t_s[0], each
     minus SGP4: total distance and radial/in-track/cross-track components
     [km]. All satellites go through the integrator together, one run per model.
     """
-    sgp4 = [propagate_sgp4(sat, t_s) for sat in sats]
+    sgp4 = [propagate_sgp4(sat, t_s, start) for sat in sats]
     r0 = np.array([r[0] for r, _ in sgp4])
     v0 = np.array([v[0] for _, v in sgp4])
     out = {sat["NORAD_CAT_ID"]: {"sgp4": states} for sat, states in zip(sats, sgp4)}
