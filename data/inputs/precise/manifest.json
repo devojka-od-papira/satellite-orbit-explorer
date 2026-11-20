@@ -1,0 +1,13 @@
+{
+  "file": "GBM0MGXRAP_20263210000_01D_05M_ORB_E29_J02.sp3",
+  "source": "ftp://ftp.gfz-potsdam.de/pub/GNSS/products/mgex/2445_IGS20/GBM0MGXRAP_20263210000_01D_05M_ORB.SP3.gz",
+  "product": "GFZ rapid multi-GNSS orbits (MGEX), SP3-d, 5 min, GPS time, IGc20 frame",
+  "day": "2026-11-17",
+  "retrieved_utc": "2026-11-20T10:16:00Z",
+  "satellites": {
+    "E29": "GSAT0225 (GALILEO 29), NORAD 59598",
+    "J02": "QZS-2 (MICHIBIKI-2), NORAD 42738"
+  },
+  "made_with": "python -m orbit_explorer.sp3 GBM0MGXRAP_20263210000_01D_05M_ORB.SP3.gz --keep E29 J02 -o data/inputs/precise/GBM0MGXRAP_20263210000_01D_05M_ORB_E29_J02.sp3",
+  "note": "Only our two satellites are kept, positions unchanged (clocks dropped). Same day as the documented GP data, so the propagated orbits can be checked against it."
+}

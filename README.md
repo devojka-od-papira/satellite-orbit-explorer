@@ -60,6 +60,26 @@ The workflow can also be started by hand from the Actions tab.
 - **Local preview.** `DRY_RUN=1 .github/scripts/daily_refresh.sh` previews the
   PR, then puts the data back.
 
+### Precise orbits (SP3)
+`data/inputs/precise/` keeps one day (2026-11-17, the day of the documented GP
+data) of GFZ's rapid multi-GNSS precise orbits for GALILEO 29 (`E29`) and QZS-2
+(`J02`): positions every 5 minutes, accurate to centimetres, in the
+Earth-fixed IGc20 frame. `manifest.json` records the source. PULSAR-0 and
+SES-5 have no public precise orbits. `orbit_explorer.sp3` reads SP3-c/d files,
+writes subsets and interpolates between epochs:
+
+- **Time scale:** SP3 epochs are in GPS time, 18 s ahead of UTC. Reading them
+  as UTC puts GALILEO 29 about 50 km off, more than any model error here.
+- **Interpolation:** a degree-10 Lagrange polynomial. Dropping every other
+  epoch and interpolating it back recovers it to 3 mm (E29) and 8 mm (J02).
+- **Matching:** SP3 files name satellites by PRN, not NORAD ID. `E29` and `J02`
+  are each within a few km of our SGP4 positions and thousands of km from
+  every other satellite in the file.
+
+To make the subset from a downloaded file:
+
+    python -m orbit_explorer.sp3 GBM0MGXRAP_20263210000_01D_05M_ORB.SP3.gz --keep E29 J02 -o data/inputs/precise/GBM0MGXRAP_20263210000_01D_05M_ORB_E29_J02.sp3
+
 ## Validation
 All periods, perigee/apogee altitudes and speed ranges matched the GNSS Academy
 workshop reference values for the four satellites. That dataset (downloaded
