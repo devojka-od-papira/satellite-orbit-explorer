@@ -38,9 +38,12 @@ PRECISE_ORBITS = PRECISE_DIR / "GBM0MGXRAP_20263210000_01D_05M_ORB_E29_J02.sp3"
 SP3_IDS = {59598: "E29", 42738: "J02"}  # GALILEO 29 (GSAT0225), QZS-2
 
 # Seconds to subtract from each time scale to get UTC. Valid from 2017-01-01,
-# the last leap second; IERS has announced none since.
+# the last leap second, up to LEAP_SECONDS_CHECKED_UNTIL: IERS announces each
+# leap second in Bulletin C about six months ahead. After checking a new
+# bulletin, move that date forward (or add the new leap second here).
 TIME_SCALE_MINUS_UTC_S = {"GPS": 18, "GAL": 18, "QZS": 18, "TAI": 37, "UTC": 0}
 LEAP_SECONDS_VALID_FROM = datetime(2017, 1, 1, tzinfo=UTC)
+LEAP_SECONDS_CHECKED_UNTIL = datetime(2027, 1, 1, tzinfo=UTC)
 
 GPS_EPOCH = datetime(1980, 1, 6, tzinfo=UTC)
 MJD_EPOCH = datetime(1858, 11, 17, tzinfo=UTC)
@@ -60,6 +63,8 @@ class Sp3:
     coord_system: str = "IGc20"
     agency: str = ""
     comments: list[str] = field(default_factory=list)
+    data_used: str = "u+U"  # how the producer made it, copied when writing
+    orbit_type: str = "FIT"  # FIT, EXT (extrapolated), BCT (broadcast), HLM
 
     @property
     def interval_s(self) -> float:
@@ -74,6 +79,11 @@ class Sp3:
         utc = [e.replace(tzinfo=UTC) - timedelta(seconds=offset) for e in self.epochs]
         if utc[0] < LEAP_SECONDS_VALID_FROM:
             raise ValueError("leap second table starts at 2017-01-01")
+        if utc[-1] >= LEAP_SECONDS_CHECKED_UNTIL:
+            raise ValueError(
+                f"leap seconds checked only until {LEAP_SECONDS_CHECKED_UNTIL:%Y-%m-%d}"
+                "; see IERS Bulletin C and update the table"
+            )
         return utc
 
     def seconds_since(self, start_utc: datetime) -> np.ndarray:
@@ -95,7 +105,9 @@ def parse_sp3(text: str) -> Sp3:
     if lines[0][2] != "P":
         raise ValueError("only position (P) SP3 files are supported")
     header = lines[0]
+    data_used = header[40:45].strip() or "u+U"
     coord_system = header[46:51].strip()
+    orbit_type = header[52:55].strip() or "FIT"
     agency = header[56:60].strip()
     time_system = "GPS"  # SP3-a/b default; %c names it in c/d
     comments = []
@@ -129,14 +141,27 @@ def parse_sp3(text: str) -> Sp3:
         for k, xyz in by_epoch.items():
             pos[k] = xyz
         positions[sat_id] = pos
-    return Sp3(epochs, positions, time_system, coord_system, agency, comments)
+    return Sp3(
+        epochs,
+        positions,
+        time_system,
+        coord_system,
+        agency,
+        comments,
+        data_used,
+        orbit_type,
+    )
 
 
 def read_sp3(path: Path) -> Sp3:
-    """Read a .sp3 file, gzipped or not."""
+    """Read a .sp3 file, gzipped or not.
+
+    Latin-1, not ASCII: the data lines are ASCII, but producers sometimes put
+    accented names in the comment lines, and Latin-1 decodes any byte.
+    """
     path = Path(path)
     opener = gzip.open if path.suffix == ".gz" else open
-    with opener(path, "rt", encoding="ascii") as f:
+    with opener(path, "rt", encoding="latin-1") as f:
         return parse_sp3(f.read())
 
 
@@ -148,7 +173,13 @@ def _epoch_fields(t: datetime) -> str:
 
 
 def format_sp3(sp3: Sp3) -> str:
-    """SP3-d text for ``sp3`` (positions only, clocks left as 999999.999999)."""
+    """SP3-d text for ``sp3`` (positions only, clocks left as 999999.999999).
+
+    The header's epochs, GPS week, seconds of week and MJD are all on the
+    file's own time scale, as the SP3 format specifies (for GPS files the GPS
+    week; for a UTC file the same count on the UTC clock), so they are
+    computed from the epochs as they are, without converting.
+    """
     ids = list(sp3.positions)
     first = sp3.epochs[0]
     aware = first.replace(tzinfo=UTC)
@@ -160,8 +191,8 @@ def format_sp3(sp3: Sp3) -> str:
         # fixed columns: 4-31 first epoch, 33-39 epochs, 41-45 data used,
         # 47-51 coordinate system, 53-55 orbit type, 57-60 agency
         (
-            f"#dP{_epoch_fields(first)} {len(sp3.epochs):7d} {'u+U':>5s} "
-            f"{sp3.coord_system:>5s} FIT {sp3.agency:>4s}"
+            f"#dP{_epoch_fields(first)} {len(sp3.epochs):7d} {sp3.data_used:>5s} "
+            f"{sp3.coord_system:>5s} {sp3.orbit_type:3s} {sp3.agency:>4s}"
         ),
         (
             f"## {int(week):4d} {sow:15.8f} {sp3.interval_s:14.8f} {mjd:5d} "

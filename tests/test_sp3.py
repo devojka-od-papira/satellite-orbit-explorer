@@ -4,8 +4,9 @@ from datetime import UTC, datetime, timedelta
 
 import numpy as np
 import pytest
+from conftest import FROZEN_START
 
-from orbit_explorer.elements import MU_EARTH_KM3_S2, load_elements
+from orbit_explorer.elements import MU_EARTH_KM3_S2
 from orbit_explorer.frames import eci_to_ecef, gmst_rad
 from orbit_explorer.sgp4_compare import propagate_sgp4
 from orbit_explorer.sp3 import (
@@ -20,8 +21,10 @@ from orbit_explorer.sp3 import (
     read_sp3,
 )
 
-START = datetime(2026, 11, 17, tzinfo=UTC)  # the day of the stored SP3 file
-SATS = {s["NORAD_CAT_ID"]: s for s in load_elements()}
+# The stored SP3 file is for 2026-11-17, the day of the frozen GP data
+# (conftest.py). SGP4 comparisons propagate those elements to that day, not
+# today's: the current data moves on every day, the precise orbits don't.
+START = FROZEN_START
 
 
 @pytest.fixture(scope="module")
@@ -35,14 +38,19 @@ def tiny_sp3(**changes) -> Sp3:
         "E29": np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [np.nan] * 3]),
         "J02": np.array([[-1.5, 0.25, 9.0], [7.0, 8.0, 9.0], [1.0, 1.0, 1.0]]),
     }
-    return Sp3(epochs, pos, agency="TST", comments=["test"], **changes)
+    return Sp3(epochs, pos, **{"agency": "TST", "comments": ["test"], **changes})
 
 
 # ---------- Reading and writing ----------
+def test_stored_file_is_for_the_frozen_gp_day(sp3):
+    assert sp3.epochs[0].date() == FROZEN_START.date()
+
+
 def test_stored_file_header(sp3):
     assert sp3.time_system == "GPS"
     assert sp3.coord_system == "IGc20"
     assert sp3.agency == "GFZ"
+    assert (sp3.data_used, sp3.orbit_type) == ("u+U", "FIT")
     assert len(sp3.epochs) == 289  # one day every 5 minutes, both ends
     assert sp3.interval_s == 300
     assert sp3.epochs[0] == datetime(2026, 11, 17)
@@ -74,6 +82,23 @@ def test_stored_file_is_a_faithful_subset(sp3):
     again = parse_sp3(format_sp3(sp3))
     for sat_id in sp3.positions:
         np.testing.assert_array_equal(again.positions[sat_id], sp3.positions[sat_id])
+
+
+def test_producer_fields_are_kept_not_relabelled():
+    """A subset of an extrapolated (EXT) file must not call itself fitted."""
+    text = format_sp3(tiny_sp3(data_used="ORBIT", orbit_type="EXT"))
+    back = parse_sp3(text)
+    assert (back.data_used, back.orbit_type) == ("ORBIT", "EXT")
+    assert text.splitlines()[0][52:55] == "EXT"
+
+
+def test_non_ascii_comments_are_read(tmp_path):
+    text = format_sp3(tiny_sp3(comments=["Universität Bern, Zürich"]))
+    path = tmp_path / "accents.sp3"
+    path.write_bytes(text.encode("latin-1"))
+    sp3 = read_sp3(path)
+    assert sp3.comments[0] == "Universität Bern, Zürich"
+    assert list(sp3.positions) == ["E29", "J02"]
 
 
 def test_bad_positions_become_nan():
@@ -138,6 +163,14 @@ def test_unknown_time_scale_and_old_dates_are_refused():
         old.utc_epochs()
 
 
+def test_epochs_past_the_checked_leap_second_table_are_refused():
+    """A leap second announced later would make every offset 1 s wrong."""
+    future = tiny_sp3()
+    future.epochs = [e.replace(year=2027, month=3) for e in future.epochs]
+    with pytest.raises(ValueError, match="Bulletin C"):
+        future.utc_epochs()
+
+
 # ---------- Interpolation ----------
 def test_lagrange_is_exact_for_polynomials_up_to_its_order():
     t_nodes = np.arange(0, 3600.0, 300.0)
@@ -189,12 +222,12 @@ def test_leaving_out_an_epoch_it_is_recovered_to_a_centimetre(sp3, sat_id):
 
 # ---------- Our satellites in the file ----------
 @pytest.mark.parametrize("norad", list(SP3_IDS), ids=lambda n: SP3_IDS[n])
-def test_each_sp3_id_is_our_satellite(sp3, norad):
+def test_each_sp3_id_is_our_satellite(sp3, frozen_sats, norad):
     """At 01:00 UTC the matching SP3 satellite is within a few km of SGP4 in
     the Earth-fixed frame, and every other one is thousands of km away."""
     t = np.array([3600.0])
-    r_teme, _ = propagate_sgp4(SATS[norad], t)
-    ecef = eci_to_ecef(r_teme, gmst_rad(t))[0]
+    r_teme, _ = propagate_sgp4(frozen_sats[norad], t, START)
+    ecef = eci_to_ecef(r_teme, gmst_rad(t, START))[0]
     distance = {
         sat_id: np.linalg.norm(positions_at(sp3, sat_id, t, START)[0] - ecef)
         for sat_id in sp3.positions
@@ -204,12 +237,12 @@ def test_each_sp3_id_is_our_satellite(sp3, norad):
 
 
 @pytest.mark.parametrize("norad", list(SP3_IDS), ids=lambda n: SP3_IDS[n])
-def test_ignoring_gps_time_costs_tens_of_kilometres(sp3, norad):
+def test_ignoring_gps_time_costs_tens_of_kilometres(sp3, frozen_sats, norad):
     """The classic mistake: reading SP3 epochs as UTC. Against SGP4 the error
     then grows from a few km to tens of km."""
     t = np.arange(0.0, 86400 - 18, 600.0)
-    r_teme, _ = propagate_sgp4(SATS[norad], t)
-    ecef = eci_to_ecef(r_teme, gmst_rad(t))
+    r_teme, _ = propagate_sgp4(frozen_sats[norad], t, START)
+    ecef = eci_to_ecef(r_teme, gmst_rad(t, START))
     sat_id = SP3_IDS[norad]
     right = positions_at(sp3, sat_id, t, START)
     as_if_utc = lagrange_interpolate(
