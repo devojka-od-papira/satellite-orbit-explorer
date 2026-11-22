@@ -263,11 +263,21 @@ def test_j2_difference_from_sgp4_is_mostly_in_track_in_leo(results):
     assert in_track > radial and in_track > cross
 
 
-def test_j2_beats_a_point_mass_in_leo_on_the_current_data():
-    """What holds for any day's data, so the daily refresh checks it."""
+def test_node_drift_matches_theory_on_the_current_data():
+    """What holds for any day's data, so the daily refresh checks it.
+
+    Not "J2 beats a point mass by N times": how far a point mass drifts
+    depends on where the satellite is at 00:00 (its osculating semi-major
+    axis can be 12 km short of the mean one, or equal to it), so that ratio
+    changes from day to day (17.11: 2,180 km; 21.11: 81 km). The node drift
+    doesn't: J2 turns PULSAR-0's plane at the theoretical, sun-synchronous rate.
+    """
     pulsar = next(s for s in load_elements() if s["NORAD_CAT_ID"] == PULSAR)
     res = compare_all([pulsar], T)[PULSAR]  # today's elements and window
-    assert res["j2"]["total"][-1] < res["two_body"]["total"][-1] / 10
+    numerical, theory, _ = node_drift(res, T)
+    assert numerical == pytest.approx(theory, rel=0.02)
+    assert is_sun_synchronous(numerical)
+    assert res["j2"]["total"].max() < 50  # km: J2 stays close to SGP4 in LEO
 
 
 def test_all_models_start_on_sgp4(results):
