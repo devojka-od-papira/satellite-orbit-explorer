@@ -8,15 +8,14 @@ the GP data of 2026-11-17 instead, propagated to that day, so they can't break
 when the data moves on.
 """
 
-from datetime import UTC, datetime
-from pathlib import Path
-
 import pytest
 
 from orbit_explorer.elements import load_elements
+from orbit_explorer.validation import PRECISE_GP, PRECISE_START
 
-FROZEN_GP_PATH = Path(__file__).parent / "data" / "gp_2026-11-17.json"
-FROZEN_START = datetime(2026, 11, 17, tzinfo=UTC)  # its window start
+# The precise day in data/inputs/precise/ (its manifest is the one source)
+FROZEN_GP_PATH = PRECISE_GP
+FROZEN_START = PRECISE_START
 
 
 @pytest.fixture(scope="session")

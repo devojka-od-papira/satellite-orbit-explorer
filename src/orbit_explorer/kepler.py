@@ -35,8 +35,11 @@ def solve_kepler(M: np.ndarray, e: float, tol: float = 1e-12) -> np.ndarray:
     return E
 
 
-def propagate_eci(sat: dict, t_s: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """ECI positions [km] and speeds [km/s] at times t_s after START."""
+def propagate_eci(
+    sat: dict, t_s: np.ndarray, start: datetime = START
+) -> tuple[np.ndarray, np.ndarray]:
+    """ECI positions [km] and speeds [km/s] at times t_s after ``start`` (by
+    default the window START of the current GP data)."""
     n = mean_motion_rad_s(sat["MEAN_MOTION"])
     a = semi_major_axis_km(n)
     e = sat["ECCENTRICITY"]
@@ -46,7 +49,7 @@ def propagate_eci(sat: dict, t_s: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     M0 = np.radians(sat["MEAN_ANOMALY"])
 
     epoch = datetime.fromisoformat(sat["EPOCH"]).replace(tzinfo=UTC)
-    dt = t_s - (epoch - START).total_seconds()  # negative before the epoch
+    dt = t_s - (epoch - start).total_seconds()  # negative before the epoch
 
     M = M0 + n * dt
     M = np.remainder(M, 2 * np.pi)  # wrap to [0, 2*pi)

@@ -21,6 +21,7 @@ Supports SP3-c and SP3-d position files (velocity records are skipped).
 
 import argparse
 import gzip
+import json
 import math
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
@@ -29,7 +30,10 @@ from pathlib import Path
 import numpy as np
 
 PRECISE_DIR = Path("data/inputs/precise")
-PRECISE_ORBITS = PRECISE_DIR / "GBM0MGXRAP_20263210000_01D_05M_ORB_E29_J02.sp3"
+# manifest.json describes the stored precise day: the SP3 file, the GP
+# elements of that day and its Earth orientation (see validation.py).
+PRECISE_MANIFEST = PRECISE_DIR / "manifest.json"
+PRECISE_ORBITS = PRECISE_DIR / json.loads(PRECISE_MANIFEST.read_text())["file"]
 
 # Our satellites in the SP3 files, by NORAD ID. Found by matching positions:
 # each is within a few km of its SGP4 position and thousands of km from any
