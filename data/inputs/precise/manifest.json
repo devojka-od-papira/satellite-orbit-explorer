@@ -10,7 +10,9 @@
   },
   "made_with": "python -m orbit_explorer.sp3 GBM0MGXRAP_20263210000_01D_05M_ORB.SP3.gz --keep E29 J02 -o data/inputs/precise/GBM0MGXRAP_20263210000_01D_05M_ORB_E29_J02.sp3",
   "note": "Only our two satellites are kept, positions unchanged (clocks dropped). Same day as the documented GP data, so the propagated orbits can be checked against it.",
-  "gp_elements": "gp_2026-11-17.json (and gp_2026-11-17_manifest.json): the GP data of the same day, as downloaded from CelesTrak on 2026-11-17",
+  "gp_file": "gp_2026-11-17.json",
+  "gp_manifest": "gp_2026-11-17_manifest.json",
+  "gp_note": "The GP data of the same day, as downloaded from CelesTrak on 2026-11-17.",
   "earth_orientation": {
     "source": "https://datacenter.iers.org/data/latestVersion/finals.data.iau2000.txt (IERS Rapid Service, finals2000A)",
     "mjd": 61361,
@@ -18,6 +20,6 @@
     "yp_arcsec": 0.32793,
     "ut1_minus_utc_s": -0.0718374,
     "retrieved_utc": "2026-11-22",
-    "used_in": "src/orbit_explorer/validation.py (EOP_2026_11_17)"
+    "used_in": "src/orbit_explorer/validation.py (read from here)"
   }
 }

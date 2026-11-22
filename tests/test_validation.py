@@ -4,19 +4,24 @@ Everything here is for 2026-11-17, the day of the stored SP3 file and GP
 elements in data/inputs/precise/, so the results are fixed numbers.
 """
 
+import json
+
 import numpy as np
 import pytest
 from sgp4.api import jday
 from sgp4.propagation import gstime
 
-from orbit_explorer.elements import MU_EARTH_KM3_S2
+from orbit_explorer.elements import MU_EARTH_KM3_S2, load_elements
 from orbit_explorer.frames import eci_to_ecef, gmst_rad
-from orbit_explorer.sp3 import PRECISE_ORBITS, SP3_IDS, read_sp3
+from orbit_explorer.sgp4_compare import propagate_sgp4
+from orbit_explorer.sp3 import PRECISE_MANIFEST, PRECISE_ORBITS, SP3_IDS, read_sp3
 from orbit_explorer.validation import (
     EARTH_ROTATION_RAD_S,
-    EOP_2026_11_17,
     MODELS,
     NO_EOP,
+    PRECISE_DAY,
+    PRECISE_EOP,
+    PRECISE_GP,
     PRECISE_START,
     build_summary,
     frame_effect_km,
@@ -49,14 +54,14 @@ def test_gmst_matches_the_sgp4_library():
 
 def test_ut1_shifts_the_earth_angle_by_dut1():
     t = np.array([0.0, 50000.0])
-    shifted = gmst_ut1(t + EOP_2026_11_17.ut1_minus_utc_s, PRECISE_START, NO_EOP)
+    shifted = gmst_ut1(t + PRECISE_EOP.ut1_minus_utc_s, PRECISE_START, NO_EOP)
     np.testing.assert_allclose(
-        gmst_ut1(t, PRECISE_START, EOP_2026_11_17), shifted, atol=1e-12
+        gmst_ut1(t, PRECISE_START, PRECISE_EOP), shifted, atol=1e-12
     )
 
 
 def test_polar_motion_is_a_small_rotation():
-    w = polar_motion(EOP_2026_11_17)
+    w = polar_motion(PRECISE_EOP)
     np.testing.assert_allclose(w @ w.T, np.eye(3), atol=1e-15)
     np.testing.assert_array_equal(polar_motion(NO_EOP), np.eye(3))
     # 0.12" and 0.33" move a point at Galileo's radius by tens of metres
@@ -93,18 +98,44 @@ def test_a_point_fixed_on_the_earth_moves_with_its_rotation():
     assert abs(np.dot(r[0], v[0])) < 1e-9  # perpendicular to the radius
 
 
-@pytest.mark.parametrize(
-    "sat_id, a_km", [("E29", 29600), ("J02", 42164)], ids=["E29", "J02"]
-)
-def test_precise_inertial_state_has_the_right_orbit(sat_id, a_km):
-    """The SP3 state turned inertial gives the satellite's semi-major axis
-    (vis-viva): the derivative and the rotation are both right."""
+@pytest.mark.parametrize("norad", list(SP3_IDS), ids=lambda n: SP3_IDS[n])
+def test_precise_inertial_state_matches_sgp4s_orbit(norad):
+    """The SP3 state turned inertial has the same osculating semi-major axis
+    as SGP4 to within a fraction of a kilometre (vis-viva): the derivative and
+    ω x r are both right. A velocity error of 3 m/s would show as 50-90 km."""
     sp3 = read_sp3(PRECISE_ORBITS)
-    t = T[::720]
-    r, v = itrf_to_teme(*precise_state(sp3, sat_id, t), t)
-    rn, v2 = np.linalg.norm(r, axis=1), np.sum(v * v, axis=1)
-    a = 1 / (2 / rn - v2 / MU_EARTH_KM3_S2)
-    assert np.abs(a - a_km).max() < 150  # km (J2 short-period terms, QZS e)
+    t = T[::360]
+    r, v = itrf_to_teme(*precise_state(sp3, SP3_IDS[norad], t), t)
+    sat = next(s for s in load_elements(PRECISE_GP) if s["NORAD_CAT_ID"] == norad)
+    r_sgp4, v_sgp4 = propagate_sgp4(sat, t, PRECISE_START)
+
+    def semi_major_axis(r, v):
+        rn, v2 = np.linalg.norm(r, axis=1), np.sum(v * v, axis=1)
+        return 1 / (2 / rn - v2 / MU_EARTH_KM3_S2)
+
+    gap = semi_major_axis(r, v) - semi_major_axis(r_sgp4, v_sgp4)
+    assert np.abs(gap).max() < 2  # km (0.2 for E29, 0.35 for J02)
+
+
+# ---------- One source for the precise day ----------
+def test_the_day_agrees_with_the_sp3_file_and_the_gp_manifest():
+    """The manifest names the day; the SP3 file and the GP data must be of it."""
+    sp3 = read_sp3(PRECISE_ORBITS)
+    assert sp3.epochs[0].date() == PRECISE_START.date()  # GPS-time midnight
+    gp_manifest = json.loads(PRECISE_DAY.gp_manifest_path.read_text())
+    assert gp_manifest["reference_start_utc"] == f"{PRECISE_START:%Y-%m-%dT%H:%M:%SZ}"
+    gp_epochs = [s["EPOCH"][:10] for s in load_elements(PRECISE_GP)]
+    assert max(gp_epochs) <= f"{PRECISE_START:%Y-%m-%d}"  # none from a later day
+
+
+def test_earth_orientation_comes_from_the_manifest():
+    e = json.loads(PRECISE_MANIFEST.read_text())["earth_orientation"]
+    assert (PRECISE_EOP.xp_arcsec, PRECISE_EOP.yp_arcsec) == (
+        e["xp_arcsec"],
+        e["yp_arcsec"],
+    )
+    assert PRECISE_EOP.ut1_minus_utc_s == e["ut1_minus_utc_s"]
+    assert str(e["mjd"]) in PRECISE_EOP.source
 
 
 def test_grid_stays_inside_the_sp3_day():
@@ -155,4 +186,4 @@ def test_summary(results):
         assert res["sat"]["OBJECT_NAME"] in summary
     for _, label in MODELS:
         assert label in summary
-    assert EOP_2026_11_17.source in summary
+    assert PRECISE_EOP.source in summary

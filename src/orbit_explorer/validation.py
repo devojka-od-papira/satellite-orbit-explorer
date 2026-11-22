@@ -11,8 +11,9 @@ Four models, all for that day:
 - **SGP4** from the same GP elements;
 - **J2 from SGP4's state**: the numerical J2 propagator started on SGP4 at 00:00;
 - **J2 from the precise state**: the same propagator started on the precise
-  orbit at 00:00, so its error is the force model alone (no Moon, Sun or solar
-  radiation pressure), not the GP elements.
+  orbit at 00:00, so its error comes from the force model, not the GP
+  elements. Most of it is expected to be the Moon and the Sun, which the model
+  leaves out (not yet shown: that needs a third-body model).
 
 Comparing needs the same frame and time scale on both sides:
 
@@ -28,6 +29,7 @@ uses the inertial velocity.
     python -m orbit_explorer.validation
 """
 
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -40,11 +42,15 @@ from orbit_explorer import j2, style
 from orbit_explorer.elements import load_elements
 from orbit_explorer.kepler import STEP_S, propagate_eci
 from orbit_explorer.sgp4_compare import propagate_sgp4, ric_components
-from orbit_explorer.sp3 import PRECISE_DIR, PRECISE_ORBITS, SP3_IDS, read_sp3
+from orbit_explorer.sp3 import (
+    PRECISE_MANIFEST,
+    PRECISE_ORBITS,
+    SP3_IDS,
+    positions_at,
+    read_sp3,
+)
 
 OUTPUT_DIR = Path("outputs")
-PRECISE_GP = PRECISE_DIR / "gp_2026-11-17.json"  # the GP elements of that day
-PRECISE_START = datetime(2026, 11, 17, tzinfo=UTC)
 EARTH_ROTATION_RAD_S = 7.292115e-5  # IERS nominal mean angular velocity
 
 
@@ -58,11 +64,40 @@ class EarthOrientation:
     source: str
 
 
-# IERS Rapid Service, finals2000A (datacenter.iers.org), line for MJD 61361:
-# "261117 61361.00 I  0.118181 0.000042  0.327930 0.000042  I-0.0718374 ..."
-EOP_2026_11_17 = EarthOrientation(
-    0.118181, 0.327930, -0.0718374, "IERS finals2000A, MJD 61361 (flag I)"
-)
+@dataclass(frozen=True)
+class PreciseDay:
+    """The stored precise day, as data/inputs/precise/manifest.json describes it:
+    its UTC midnight, the GP elements of that day and its Earth orientation."""
+
+    start: datetime
+    gp_path: Path
+    gp_manifest_path: Path
+    eop: EarthOrientation
+
+
+def load_precise_day(manifest_path: Path = PRECISE_MANIFEST) -> PreciseDay:
+    """Read the precise day from its manifest, so the data folder alone says
+    which day it is: SP3 file, GP elements and Earth orientation together."""
+    manifest = json.loads(manifest_path.read_text())
+    folder = manifest_path.parent
+    e = manifest["earth_orientation"]
+    return PreciseDay(
+        start=datetime.fromisoformat(manifest["day"]).replace(tzinfo=UTC),
+        gp_path=folder / manifest["gp_file"],
+        gp_manifest_path=folder / manifest["gp_manifest"],
+        eop=EarthOrientation(
+            e["xp_arcsec"],
+            e["yp_arcsec"],
+            e["ut1_minus_utc_s"],
+            f"IERS finals2000A, MJD {e['mjd']}",
+        ),
+    )
+
+
+PRECISE_DAY = load_precise_day()
+PRECISE_START = PRECISE_DAY.start
+PRECISE_GP = PRECISE_DAY.gp_path
+PRECISE_EOP = PRECISE_DAY.eop
 NO_EOP = EarthOrientation(0.0, 0.0, 0.0, "none (UT1 = UTC, no polar motion)")
 
 MODELS = (
@@ -116,7 +151,7 @@ def teme_to_itrf(
     r_teme: np.ndarray,
     t_s: np.ndarray,
     start: datetime = PRECISE_START,
-    eop: EarthOrientation = EOP_2026_11_17,
+    eop: EarthOrientation = PRECISE_EOP,
 ) -> np.ndarray:
     """Earth-fixed (ITRF) positions [km] from TEME positions."""
     r_pef = _rot3(gmst_ut1(t_s, start, eop), r_teme)
@@ -128,7 +163,7 @@ def itrf_to_teme(
     v_itrf: np.ndarray,
     t_s: np.ndarray,
     start: datetime = PRECISE_START,
-    eop: EarthOrientation = EOP_2026_11_17,
+    eop: EarthOrientation = PRECISE_EOP,
 ) -> tuple[np.ndarray, np.ndarray]:
     """TEME position [km] and inertial velocity [km/s] from an Earth-fixed
     state; the velocity gains the Earth's rotation, omega x r."""
@@ -146,8 +181,6 @@ def precise_state(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Earth-fixed position [km] and velocity [km/s] from the SP3 file; the
     velocity is the central difference of the interpolant over ±1 s."""
-    from orbit_explorer.sp3 import positions_at
-
     r = positions_at(sp3, sat_id, t_s, start)
     v = (
         positions_at(sp3, sat_id, t_s + 1, start)
@@ -167,7 +200,7 @@ def time_grid() -> np.ndarray:
 
 # ---------- Comparison ----------
 def validate(
-    eop: EarthOrientation = EOP_2026_11_17, t_s: np.ndarray | None = None
+    eop: EarthOrientation = PRECISE_EOP, t_s: np.ndarray | None = None
 ) -> dict[int, dict]:
     """Each model minus the precise orbit, in TEME, for each satellite with an
     SP3 orbit: total distance and radial/in-track/cross-track [km]."""
@@ -209,7 +242,7 @@ def frame_effect_km(t_s: np.ndarray | None = None) -> dict[int, float]:
     for norad, sat_id in SP3_IDS.items():
         r_sgp4, _ = propagate_sgp4(sats[norad], t, PRECISE_START)
         r_itrf, v_itrf = precise_state(sp3, sat_id, t)
-        with_eop, _ = itrf_to_teme(r_itrf, v_itrf, t, eop=EOP_2026_11_17)
+        with_eop, _ = itrf_to_teme(r_itrf, v_itrf, t, eop=PRECISE_EOP)
         without, _ = itrf_to_teme(r_itrf, v_itrf, t, eop=NO_EOP)
         gap = np.linalg.norm(r_sgp4 - with_eop, axis=1) - np.linalg.norm(
             r_sgp4 - without, axis=1
@@ -226,8 +259,8 @@ def build_summary(results: dict[int, dict], frame_km: dict[int, float]) -> str:
         "MODELS vs PRECISE ORBITS (SP3)",
         f"Day: {PRECISE_START:%Y-%m-%d} UTC, truth: {PRECISE_ORBITS.name}",
         (
-            f'Earth orientation: {EOP_2026_11_17.source}: xp {EOP_2026_11_17.xp_arcsec}", '
-            f'yp {EOP_2026_11_17.yp_arcsec}", UT1-UTC {EOP_2026_11_17.ut1_minus_utc_s} s'
+            f'Earth orientation: {PRECISE_EOP.source}: xp {PRECISE_EOP.xp_arcsec}", '
+            f'yp {PRECISE_EOP.yp_arcsec}", UT1-UTC {PRECISE_EOP.ut1_minus_utc_s} s'
         ),
         "",
         "Distance from the precise orbit [km]",
@@ -265,8 +298,9 @@ def build_summary(results: dict[int, dict], frame_km: dict[int, float]) -> str:
     ]
     lines += [
         "",
-        "J2 from the precise state starts on the truth, so its error is the force",
-        "model alone: the Moon, the Sun and solar radiation pressure are missing.",
+        "J2 from the precise state starts on the truth, so its error comes from the",
+        "force model. Most of it is expected to be the Moon and the Sun, which the",
+        "model leaves out (not yet shown).",
         "",
     ]
     return "\n".join(lines)

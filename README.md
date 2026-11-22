@@ -167,16 +167,16 @@ the GP elements of that same day (both in `data/inputs/precise/`).
   reads its mean elements as osculating and is 20–50 km off.
 - **J2 started on SGP4** inherits SGP4's starting error and adds no
   accuracy: up there the Moon and the Sun matter more than the bulge.
-- **J2 started on the truth** isolates the force model. It is within 100 m
-  for the first hour, then drifts to 3–5 km by the end of the day, mostly
-  in-track: the missing pull of the Moon and the Sun and solar radiation
-  pressure.
+- **J2 started on the truth** leaves only the force model's error. It is
+  within 100 m for the first hour, then drifts to 3–5 km by the end of the day,
+  mostly in-track. Most of that is expected to be the Moon and the Sun, which
+  the model leaves out; showing it needs a third-body model (next step).
 - **Frames and time.** SP3 positions are Earth-fixed (IGc20) and in GPS time.
   The comparison converts GPS time to UTC (18 s), rotates by sidereal time at
   UT1, and applies polar motion with the IERS values for the day
   (UT1−UTC = −0.072 s, pole at 0.12″, 0.33″). Leaving those out would move the
   result by 0.16 km (GALILEO 29) and 0.23 km (QZS-2). Reading GPS time as UTC
-  would move it by about 50 km.
+  would move it by about 50 km (GALILEO 29) and 25 km (QZS-2).
 
 ![Models against the precise orbit](docs/images/validation.png)
 
