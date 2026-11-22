@@ -172,6 +172,35 @@ def test_j2_from_the_precise_state_starts_on_the_truth_and_drifts(results, norad
     assert 1 < total.max() < 20  # km after a day
 
 
+@pytest.mark.parametrize("norad", list(SP3_IDS), ids=lambda n: SP3_IDS[n])
+def test_the_moon_and_the_sun_are_most_of_j2s_error(results, norad):
+    """Adding them as point masses cuts the force model's error several times
+    (GALILEO 29: 1.5 -> 0.14 km RMS; QZS-2: 3.3 -> 0.36 km) and brings it
+    below SGP4's."""
+    res = results[norad]
+
+    def rms(key):
+        return np.sqrt(np.mean(res[key]["total"] ** 2))
+
+    assert rms("j2_moon_sun_precise") < rms("j2_precise") / 4
+    assert rms("j2_moon_sun_precise") < rms("sgp4")
+    assert res["j2_moon_sun_precise"]["total"].max() < 2  # km over the day
+
+
+@pytest.mark.parametrize("norad", list(SP3_IDS), ids=lambda n: SP3_IDS[n])
+def test_what_is_left_is_the_size_of_radiation_pressure(results, norad):
+    """The remaining error is the same order as the estimated drift from solar
+    radiation pressure (within a factor of 10 either way), not much bigger."""
+    from orbit_explorer.ephemeris import drift_km
+    from orbit_explorer.validation import leftover_estimates
+
+    srp_km = drift_km(
+        dict(leftover_estimates())["Solar radiation pressure (A/m 0.02 m²/kg)"]
+    )
+    left = np.sqrt(np.mean(results[norad]["j2_moon_sun_precise"]["total"] ** 2))
+    assert srp_km / 10 < left < srp_km * 10
+
+
 def test_frame_effect_of_earth_orientation(results):
     """UT1-UTC (-0.072 s) and polar motion are worth 0.1-0.3 km here."""
     effect = frame_effect_km()
