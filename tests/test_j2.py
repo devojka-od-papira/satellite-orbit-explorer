@@ -1,7 +1,14 @@
-"""The J2 propagator: force model, integrator accuracy and the physics it shows."""
+"""The J2 propagator: force model, integrator accuracy and the physics it shows.
+
+The "what it shows" tests use the frozen GP data of 2026-11-17 (conftest.py):
+how much J2 helps each satellite depends on the day's elements, and the daily
+refresh must not fail because a ranking changed. One test runs on the current
+data, for what holds every day.
+"""
 
 import numpy as np
 import pytest
+from conftest import FROZEN_GP_PATH, FROZEN_START
 
 from orbit_explorer.elements import MU_EARTH_KM3_S2, R_EARTH_KM, load_elements
 from orbit_explorer.j2 import (
@@ -23,15 +30,15 @@ from orbit_explorer.j2 import (
 )
 from orbit_explorer.kepler import time_grid_s
 
-SATS = {s["NORAD_CAT_ID"]: s for s in load_elements()}
+SATS = {s["NORAD_CAT_ID"]: s for s in load_elements(FROZEN_GP_PATH)}
 PULSAR, GALILEO, SES5, QZS2 = 64541, 59598, 38652, 42738
 T = time_grid_s()
 
 
 @pytest.fixture(scope="module")
 def results():
-    """One day of every model for every satellite, all in one batch."""
-    return compare_all(list(SATS.values()), T)
+    """One day (2026-11-17) of every model for every satellite, in one batch."""
+    return compare_all(list(SATS.values()), T, FROZEN_START)
 
 
 def circular_state(a_km: float, incl_deg: float = 0.0):
@@ -145,6 +152,7 @@ def test_compare_one_satellite_matches_the_batch(results):
     t = T[:300]
     one = compare(SATS[GALILEO], t)
     batch = compare_all(list(SATS.values()), t)[GALILEO]
+    # (both on the default window start: what matters is that they agree)
     for key, _, _, _ in MODELS:
         np.testing.assert_allclose(one[key]["total"], batch[key]["total"], atol=1e-9)
 
@@ -253,6 +261,23 @@ def test_j2_difference_from_sgp4_is_mostly_in_track_in_leo(results):
     """What J2 leaves out (drag, higher harmonics) shows up as timing."""
     radial, in_track, cross = np.abs(results[PULSAR]["j2"]["ric"]).max(axis=0)
     assert in_track > radial and in_track > cross
+
+
+def test_node_drift_matches_theory_on_the_current_data():
+    """What holds for any day's data, so the daily refresh checks it.
+
+    Not "J2 beats a point mass by N times": how far a point mass drifts
+    depends on where the satellite is at 00:00 (its osculating semi-major
+    axis can be 12 km short of the mean one, or equal to it), so that ratio
+    changes from day to day (17.11: 2,180 km; 21.11: 81 km). The node drift
+    doesn't: J2 turns PULSAR-0's plane at the theoretical, sun-synchronous rate.
+    """
+    pulsar = next(s for s in load_elements() if s["NORAD_CAT_ID"] == PULSAR)
+    res = compare_all([pulsar], T)[PULSAR]  # today's elements and window
+    numerical, theory, _ = node_drift(res, T)
+    assert numerical == pytest.approx(theory, rel=0.02)
+    assert is_sun_synchronous(numerical)
+    assert res["j2"]["total"].max() < 50  # km: J2 stays close to SGP4 in LEO
 
 
 def test_all_models_start_on_sgp4(results):

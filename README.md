@@ -205,6 +205,12 @@ Open Font License. Apple's SF Pro may only be used for Apple-platform UI.
     pre-commit install
     pytest
 
+Most tests run on the current GP data, which the daily refresh replaces, so
+they only check what must hold for any day's data. Tests about what one day
+shows (how much J2 helps each satellite, agreement with that day's precise
+orbits) use a frozen copy of the 2026-11-17 data in `tests/data/`, so a new
+day can't break them.
+
 The 3D viewer has its own tests in `tests/viewer`. They build the site,
 open it in headless Chromium with Playwright, and check the panel, the station
 picker, the passes and the live look angles against the Python results. CI
