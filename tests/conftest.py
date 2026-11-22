@@ -15,7 +15,7 @@ import pytest
 
 from orbit_explorer.elements import load_elements
 
-FROZEN_GP_PATH = Path(__file__).parent / "data" / "gp_2026-11-17.json"
+FROZEN_GP_PATH = Path(__file__).parents[1] / "data/inputs/precise/gp_2026-11-17.json"
 FROZEN_START = datetime(2026, 11, 17, tzinfo=UTC)  # its window start
 
 

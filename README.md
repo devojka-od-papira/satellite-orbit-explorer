@@ -20,6 +20,8 @@ passes over a ground station (Belgrade, Tokyo, Sydney or Quito).
 - Compares the two-body Kepler model with SGP4/SDP4 over the same day
 - Integrates orbits numerically with Earth's oblateness (J2, RK4) and shows
   PULSAR-0's sun-synchronous plane drift
+- Validates Kepler, SGP4 and J2 against precise SP3 orbits (GALILEO 29, QZS-2),
+  with GPS time, UT1 and polar motion handled
 - Computes look angles and passes from a ground station, with a sky plot
 
 ## Data
@@ -148,6 +150,36 @@ The tests check the physics, not just the numbers:
 - the acceleration against the gradient of the J2 potential;
 - the node drift against the secular theory for three satellites.
 
+## Validation against precise orbits
+`orbit_explorer.validation` compares every model with GFZ's precise orbits
+(SP3, accurate to centimetres) for the two satellites that have them,
+GALILEO 29 and QZS-2. It uses 2026-11-17, the day of the stored SP3 file, with
+the GP elements of that same day (both in `data/inputs/precise/`).
+
+| Distance from the precise orbit, RMS over the day | GALILEO 29 | QZS-2 |
+|---|---|---|
+| Kepler from the GP elements | 20.5 km | 36.1 km |
+| SGP4 from the GP elements | **0.75 km** | **4.4 km** |
+| J2 propagator from SGP4's state at 00:00 | 0.93 km | 4.8 km |
+| J2 propagator from the precise state at 00:00 | 1.5 km | 3.3 km |
+
+- **SGP4 does what it was made for:** under a kilometre for GALILEO 29. Kepler
+  reads its mean elements as osculating and is 20–50 km off.
+- **J2 started on SGP4** inherits SGP4's starting error and adds no
+  accuracy: up there the Moon and the Sun matter more than the bulge.
+- **J2 started on the truth** isolates the force model. It is within 100 m
+  for the first hour, then drifts to 3–5 km by the end of the day, mostly
+  in-track: the missing pull of the Moon and the Sun and solar radiation
+  pressure.
+- **Frames and time.** SP3 positions are Earth-fixed (IGc20) and in GPS time.
+  The comparison converts GPS time to UTC (18 s), rotates by sidereal time at
+  UT1, and applies polar motion with the IERS values for the day
+  (UT1−UTC = −0.072 s, pole at 0.12″, 0.33″). Leaving those out would move the
+  result by 0.16 km (GALILEO 29) and 0.23 km (QZS-2). Reading GPS time as UTC
+  would move it by about 50 km.
+
+![Models against the precise orbit](docs/images/validation.png)
+
 ## Visibility from a ground station
 `orbit_explorer.visibility` turns SGP4 positions into azimuth, elevation and
 range for a station (Belgrade by default) and lists the passes above a 10°
@@ -183,6 +215,7 @@ Tokyo, QZS-2 traces its figure eight high in the southern sky and stays above
     python -m orbit_explorer.czml
     python -m orbit_explorer.sgp4_compare
     python -m orbit_explorer.j2
+    python -m orbit_explorer.validation
     python -m orbit_explorer.visibility    # Belgrade
     python -m orbit_explorer.visibility --station tokyo    # or sydney, quito
     python -m orbit_explorer.visibility --name "Novi Sad" --lat 45.25 --lon 19.84 --height 80
@@ -228,8 +261,8 @@ Open Font License. Apple's SF Pro may only be used for Apple-platform UI.
 Most tests run on the current GP data, which the daily refresh replaces, so
 they only check what must hold for any day's data. Tests about what one day
 shows (how much J2 helps each satellite, agreement with that day's precise
-orbits) use a frozen copy of the 2026-11-17 data in `tests/data/`, so a new
-day can't break them.
+orbits) use a frozen copy of the 2026-11-17 data in `data/inputs/precise/`, so
+a new day can't break them.
 
 The 3D viewer has its own tests in `tests/viewer`. They build the site,
 open it in headless Chromium with Playwright, and check the panel, the station
