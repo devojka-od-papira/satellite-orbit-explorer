@@ -5,11 +5,13 @@ with GFZ's precise orbits (SP3, centimetre level) for the two satellites that
 have them, GALILEO 29 and QZS-2, on 2026-11-17: the day of the stored SP3 file
 and of the GP elements kept next to it in data/inputs/precise/.
 
-Five models, all for that day:
+Six models, all for that day:
 
 - **Kepler** from the GP elements (two-body, mean elements read as osculating);
 - **SGP4** from the same GP elements;
 - **J2 from SGP4's state**: the numerical J2 propagator started on SGP4 at 00:00;
+- **J2 + Moon + Sun from SGP4's state**: the full force model from the same
+  start as SGP4, the fair comparison with it;
 - **J2 from the precise state**: the same propagator started on the precise
   orbit at 00:00, so its error comes from the force model, not the GP
   elements;
@@ -106,6 +108,7 @@ MODELS = (
     ("kepler", "Kepler (GP elements)"),
     ("sgp4", "SGP4 (GP elements)"),
     ("j2_sgp4", "J2 from SGP4's state"),
+    ("j2_moon_sun_sgp4", "J2 + Moon + Sun from SGP4's state"),
     ("j2_precise", "J2 from the precise state"),
     ("j2_moon_sun_precise", "J2 + Moon + Sun from the precise state"),
 )
@@ -217,6 +220,9 @@ def validate(
         r_sgp4, v_sgp4 = propagate_sgp4(sat, t, PRECISE_START)
         r_kepler, _ = propagate_eci(sat, t, PRECISE_START)
         r_j2_sgp4, _ = j2.propagate(r_sgp4[0], v_sgp4[0], t)
+        r_j2_moon_sun_sgp4, _ = j2.propagate(
+            r_sgp4[0], v_sgp4[0], t, third_body_start=PRECISE_START
+        )
         r_j2_precise, _ = j2.propagate(r_true[0], v_true[0], t)
         r_j2_moon_sun, _ = j2.propagate(
             r_true[0], v_true[0], t, third_body_start=PRECISE_START
@@ -225,6 +231,7 @@ def validate(
             "kepler": r_kepler,
             "sgp4": r_sgp4,
             "j2_sgp4": r_j2_sgp4,
+            "j2_moon_sun_sgp4": r_j2_moon_sun_sgp4,
             "j2_precise": r_j2_precise,
             "j2_moon_sun_precise": r_j2_moon_sun,
         }
