@@ -13,6 +13,8 @@ step against precise GNSS orbits.
 the satellites on a globe over one day, with Kepler and SGP4 side by side,
 and the passes over a ground station.
 
+[![The 3D viewer over four hours: PULSAR-0 circles the Earth while the panel shows each satellite's live state](docs/images/viewer.webp)](https://devojka-od-papira.github.io/satellite-orbit-explorer/)
+
 ## Result
 Distance from GFZ's precise orbits (SP3, accurate to centimetres), RMS over
 2026-11-17:
@@ -273,6 +275,11 @@ runs them in a separate job. Locally:
     pytest tests/viewer
 
 Without Playwright, `pytest` skips them.
+
+The animation at the top is recorded the same way, by stepping the viewer's
+clock through four hours in headless Chromium:
+
+    python tools/record_viewer.py    # docs/images/viewer.webp (about 400 KB)
 
 ## Style
 All figures share one look, set in [`style.py`](src/orbit_explorer/style.py)
