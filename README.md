@@ -1,7 +1,11 @@
 # Satellite Orbit Explorer
 
+[![CI](https://github.com/devojka-od-papira/satellite-orbit-explorer/actions/workflows/ci.yml/badge.svg)](https://github.com/devojka-od-papira/satellite-orbit-explorer/actions/workflows/ci.yml)
+[![Pages](https://github.com/devojka-od-papira/satellite-orbit-explorer/actions/workflows/pages.yml/badge.svg)](https://devojka-od-papira.github.io/satellite-orbit-explorer/)
+
 Orbit propagation in Python for four real navigation satellites (LEO, MEO,
-GEO and IGSO). It goes from Kepler's two-body model to a numerical
+GEO and IGSO), from CelesTrak's public GP (General Perturbations) element
+sets, the ones SGP4 uses. It goes from Kepler's two-body model to a numerical
 propagator with Earth's oblateness, the Moon and the Sun, and validates every
 step against precise GNSS orbits.
 
@@ -13,15 +17,21 @@ and the passes over a ground station.
 Distance from GFZ's precise orbits (SP3, accurate to centimetres), RMS over
 2026-11-17:
 
-| Model | GALILEO 29 (MEO) | QZS-2 (IGSO) |
-|---|---|---|
-| Kepler from the GP elements | 20.5 km | 36.1 km |
-| SGP4 from the GP elements | 0.75 km | 4.4 km |
-| Own propagator: J2, started on the precise orbit | 1.5 km | 3.3 km |
-| Own propagator: J2 + Moon + Sun, started on the precise orbit | **0.14 km** | **0.36 km** |
+| Model | Started from | GALILEO 29 (MEO) | QZS-2 (IGSO) |
+|---|---|---|---|
+| Kepler | GP elements | 20.5 km | 36.1 km |
+| SGP4 | GP elements | 0.75 km | 4.4 km |
+| Own propagator: J2 + Moon + Sun | SGP4's state at 00:00 | 0.86 km | 2.5 km |
+| Own propagator: J2 | the precise orbit at 00:00 | 1.5 km | 3.3 km |
+| Own propagator: J2 + Moon + Sun | the precise orbit at 00:00 | **0.14 km** | **0.36 km** |
 
-- **The Moon and the Sun account for about 90% of the J2 model's error.**
-  With them, the propagator is closer to the truth than SGP4.
+- **From the same start as SGP4**, the full force model is in SGP4's league:
+  a bit behind for GALILEO 29 and nearly twice as good for QZS-2. Both carry
+  the GP elements' initial error: at 00:00 already 0.36 km (GALILEO 29) and
+  4.3 km (QZS-2).
+- **From the precise orbit**, the same model drifts only 0.14 km in a day.
+  The Moon and the Sun account for about 90% of the J2-only error. So a good
+  starting state (orbit determination) matters more than the force model.
 - **What remains is about the size of solar radiation pressure.** This is an
   estimate (about 0.4 km/day), not yet a model.
 
@@ -35,7 +45,7 @@ Distance from GFZ's precise orbits (SP3, accurate to centimetres), RMS over
     bodies. Batched over satellites.
 - **Precise orbits**
   - An SP3-c/d reader and writer.
-  - Degree-10 Lagrange interpolation: 3 mm when every other epoch is left out.
+  - Degree-10 Lagrange interpolation: 3–8 mm when every other epoch is left out.
   - Satellites matched by position, because SP3 names them by PRN, not NORAD ID.
 - **Frames and time**
   - TEME to ITRF with IAU-82 GMST at UT1, plus polar motion from IERS data.
@@ -49,8 +59,8 @@ Distance from GFZ's precise orbits (SP3, accurate to centimetres), RMS over
   - Look angles and passes above an elevation mask, with sky plots.
   - Four stations: Belgrade, Tokyo, Sydney, Quito.
 - **Engineering**
-  - About 290 tests that check the physics, not only the numbers: energy
-    conservation, the exact circular orbit, J2 secular theory, tidal geometry.
+  - Tests that check the physics, not only the numbers: energy conservation,
+    the exact circular orbit, J2 secular theory, tidal geometry.
   - CI on Python 3.11–3.14, plus browser tests of the 3D viewer.
   - Daily data refresh through pull requests.
 
@@ -123,7 +133,9 @@ The table and figure are at the top.
 
 - **SGP4 does what it was made for:** under a kilometre for GALILEO 29.
 - **J2 started on SGP4** inherits SGP4's starting error and adds no accuracy.
-  At these altitudes the Moon and the Sun matter more than the bulge.
+  At these altitudes the Moon and the Sun matter more than the bulge. With them
+  added, the model from the same start is in SGP4's league: 0.86 km for
+  GALILEO 29 (SGP4 0.75) and 2.5 km for QZS-2 (SGP4 4.4).
 - **J2 started on the truth** leaves only the force model's error. It stays
   within 100 m for the first hour and reaches 3–5 km by the end of the day,
   mostly in-track.

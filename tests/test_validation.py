@@ -201,6 +201,24 @@ def test_what_is_left_is_the_size_of_radiation_pressure(results, norad):
     assert srp_km / 10 < left < srp_km * 10
 
 
+@pytest.mark.parametrize("norad", list(SP3_IDS), ids=lambda n: SP3_IDS[n])
+def test_the_starting_state_matters_more_than_the_force_model(results, norad):
+    """From SGP4's state the full force model starts with SGP4's error and ends
+    near it (GALILEO 29: 0.86 vs 0.75 km RMS; QZS-2 2.5 vs 4.4); from the
+    precise state the same model is several times closer."""
+    res = results[norad]
+
+    def rms(key):
+        return np.sqrt(np.mean(res[key]["total"] ** 2))
+
+    assert res["j2_moon_sun_sgp4"]["total"][0] == pytest.approx(
+        res["sgp4"]["total"][0], abs=1e-9
+    )
+    assert rms("j2_moon_sun_sgp4") < rms("j2_sgp4")  # Moon and Sun help either way
+    assert rms("j2_moon_sun_precise") < rms("j2_moon_sun_sgp4") / 4
+    assert 0.5 < rms("j2_moon_sun_sgp4") / rms("sgp4") < 2  # same league as SGP4
+
+
 def test_frame_effect_of_earth_orientation(results):
     """UT1-UTC (-0.072 s) and polar motion are worth 0.1-0.3 km here."""
     effect = frame_effect_km()
