@@ -29,6 +29,8 @@ from pathlib import Path
 
 import numpy as np
 
+from orbit_explorer.timescales import TIME_SCALE_MINUS_UTC_S, check_leap_second_range
+
 PRECISE_DIR = Path("data/inputs/precise")
 # manifest.json describes the stored precise day: the SP3 file, the GP
 # elements of that day and its Earth orientation (see validation.py).
@@ -40,14 +42,6 @@ PRECISE_ORBITS = PRECISE_DIR / json.loads(PRECISE_MANIFEST.read_text())["file"]
 # other satellite in the file (see the tests). PULSAR-0 and SES-5 have no
 # public precise orbits.
 SP3_IDS = {59598: "E29", 42738: "J02"}  # GALILEO 29 (GSAT0225), QZS-2
-
-# Seconds to subtract from each time scale to get UTC. Valid from 2017-01-01,
-# the last leap second, up to LEAP_SECONDS_CHECKED_UNTIL: IERS announces each
-# leap second in Bulletin C about six months ahead. After checking a new
-# bulletin, move that date forward (or add the new leap second here).
-TIME_SCALE_MINUS_UTC_S = {"GPS": 18, "GAL": 18, "QZS": 18, "TAI": 37, "UTC": 0}
-LEAP_SECONDS_VALID_FROM = datetime(2017, 1, 1, tzinfo=UTC)
-LEAP_SECONDS_CHECKED_UNTIL = datetime(2027, 1, 1, tzinfo=UTC)
 
 GPS_EPOCH = datetime(1980, 1, 6, tzinfo=UTC)
 MJD_EPOCH = datetime(1858, 11, 17, tzinfo=UTC)
@@ -81,13 +75,7 @@ class Sp3:
         except KeyError:
             raise ValueError(f"unsupported SP3 time system {self.time_system!r}")
         utc = [e.replace(tzinfo=UTC) - timedelta(seconds=offset) for e in self.epochs]
-        if utc[0] < LEAP_SECONDS_VALID_FROM:
-            raise ValueError("leap second table starts at 2017-01-01")
-        if utc[-1] >= LEAP_SECONDS_CHECKED_UNTIL:
-            raise ValueError(
-                f"leap seconds checked only until {LEAP_SECONDS_CHECKED_UNTIL:%Y-%m-%d}"
-                "; see IERS Bulletin C and update the table"
-            )
+        check_leap_second_range(utc[0], utc[-1])
         return utc
 
     def seconds_since(self, start_utc: datetime) -> np.ndarray:

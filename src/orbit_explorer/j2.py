@@ -151,7 +151,9 @@ def propagate(
 
 def energy(r: np.ndarray, v: np.ndarray, j2: bool = True) -> np.ndarray:
     """Specific orbital energy [km²/s²], kinetic plus potential (with J2).
-    Conserved by the exact motion, so its drift measures integrator error."""
+    Conserved by the exact point-mass + J2 motion, so its drift measures
+    integrator error. Not with the Moon and the Sun (third_body_start): their
+    pull changes with time, so the energy legitimately changes."""
     rn = np.linalg.norm(r, axis=-1)
     potential = -MU_EARTH_KM3_S2 / rn
     if j2:

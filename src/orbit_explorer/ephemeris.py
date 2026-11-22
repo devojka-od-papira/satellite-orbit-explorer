@@ -17,13 +17,14 @@ the ~10" nutation difference is negligible here). The time argument is TT,
 which is UTC + 69.184 s since 2017 (37 leap seconds + 32.184 s).
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import numpy as np
 
+from orbit_explorer.timescales import TT_MINUS_UTC_S, check_leap_second_range
+
 MU_SUN_KM3_S2 = 1.32712440018e11
 MU_MOON_KM3_S2 = 4902.800066
-TT_MINUS_UTC_S = 69.184  # 37 leap seconds + 32.184 s (valid since 2017-01-01)
 J2000_TT = datetime(2000, 1, 1, 12, tzinfo=UTC)  # JD 2451545.0 TT
 AU_KM = 149597870.7
 
@@ -31,9 +32,16 @@ ARCSEC = np.pi / (180 * 3600)
 
 
 def centuries_tt(t_s: np.ndarray, start_utc: datetime) -> np.ndarray:
-    """Julian centuries of TT since J2000 at times t_s after a UTC instant."""
+    """Julian centuries of TT since J2000 at times t_s after a UTC instant
+    (inside the range the leap-second table is checked for)."""
+    t = np.asarray(t_s, dtype=float)
+    if t.size:
+        check_leap_second_range(
+            start_utc + timedelta(seconds=float(t.min())),
+            start_utc + timedelta(seconds=float(t.max())),
+        )
     seconds = (start_utc - J2000_TT).total_seconds() + TT_MINUS_UTC_S
-    return (seconds + np.asarray(t_s, dtype=float)) / (86400 * 36525)
+    return (seconds + t) / (86400 * 36525)
 
 
 def obliquity_rad(T: np.ndarray) -> np.ndarray:
@@ -128,3 +136,28 @@ def third_body_acceleration(r: np.ndarray, s: np.ndarray, mu: float) -> np.ndarr
     dn = np.linalg.norm(d, axis=-1, keepdims=True)
     sn = np.linalg.norm(s, axis=-1, keepdims=True)
     return mu * (d / dn**3 - s / sn**3)
+
+
+# ---------- Orders of magnitude for what the model still leaves out ----------
+SOLAR_PRESSURE_N_M2 = 4.56e-6  # radiation pressure at 1 AU on an absorbing surface
+J3 = -2.53266e-6  # third zonal harmonic of the Earth (EGM2008)
+
+
+def srp_acceleration_km_s2(area_to_mass_m2_kg: float, cr: float = 1.3) -> float:
+    """Solar radiation pressure acceleration [km/s²] at 1 AU on a satellite
+    with that sunlit area-to-mass ratio (cannonball model, reflectivity cr)."""
+    return SOLAR_PRESSURE_N_M2 * cr * area_to_mass_m2_kg / 1000
+
+
+def zonal_acceleration_km_s2(n: int, jn: float, r_km: float) -> float:
+    """Size of the acceleration from the zonal harmonic Jn at radius r:
+    (n + 1) |Jn| mu R^n / r^(n + 2), the largest it gets (over the poles)."""
+    from orbit_explorer.elements import MU_EARTH_KM3_S2, R_EARTH_KM
+
+    return (n + 1) * abs(jn) * MU_EARTH_KM3_S2 * R_EARTH_KM**n / r_km ** (n + 2)
+
+
+def drift_km(acceleration_km_s2: float, seconds: float = 86400) -> float:
+    """How far an unmodelled constant acceleration moves a satellite in that
+    time, 0.5 a t²: an upper bound for one that changes direction."""
+    return 0.5 * acceleration_km_s2 * seconds**2

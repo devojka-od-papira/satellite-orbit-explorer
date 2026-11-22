@@ -187,6 +187,20 @@ def test_the_moon_and_the_sun_are_most_of_j2s_error(results, norad):
     assert res["j2_moon_sun_precise"]["total"].max() < 2  # km over the day
 
 
+@pytest.mark.parametrize("norad", list(SP3_IDS), ids=lambda n: SP3_IDS[n])
+def test_what_is_left_is_the_size_of_radiation_pressure(results, norad):
+    """The remaining error is the same order as the estimated drift from solar
+    radiation pressure (within a factor of 10 either way), not much bigger."""
+    from orbit_explorer.ephemeris import drift_km
+    from orbit_explorer.validation import leftover_estimates
+
+    srp_km = drift_km(
+        dict(leftover_estimates())["Solar radiation pressure (A/m 0.02 m²/kg)"]
+    )
+    left = np.sqrt(np.mean(results[norad]["j2_moon_sun_precise"]["total"] ** 2))
+    assert srp_km / 10 < left < srp_km * 10
+
+
 def test_frame_effect_of_earth_orientation(results):
     """UT1-UTC (-0.072 s) and polar motion are worth 0.1-0.3 km here."""
     effect = frame_effect_km()

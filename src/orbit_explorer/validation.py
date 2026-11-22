@@ -40,7 +40,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from sgp4.api import jday
 
-from orbit_explorer import j2, style
+from orbit_explorer import ephemeris, j2, style
 from orbit_explorer.elements import load_elements
 from orbit_explorer.kepler import STEP_S, propagate_eci
 from orbit_explorer.sgp4_compare import propagate_sgp4, ric_components
@@ -307,11 +307,38 @@ def build_summary(results: dict[int, dict], frame_km: dict[int, float]) -> str:
         "",
         "The two runs from the precise state start on the truth, so their error is",
         "the force model's. Adding the Moon and the Sun as point masses removes",
-        "most of J2's; what is left is mostly solar radiation pressure and the",
-        "Earth's higher harmonics, which the model still leaves out.",
+        "most of J2's. Orders of magnitude for what the model still leaves out,",
+        "as a drift over a day if unmodelled (0.5 a t², an upper bound):",
+        *(
+            f"  {name:42s} {a:8.1e} km/s²  ~{ephemeris.drift_km(a):5.2f} km"
+            for name, a in leftover_estimates()
+        ),
+        "What is left (0.1-0.4 km RMS) is that size: likely mostly solar",
+        "radiation pressure, with the Earth's higher harmonics smaller.",
         "",
     ]
     return "\n".join(lines)
+
+
+# Galileo FOC: about 730 kg with roughly 15 m² facing the Sun (body and solar
+# wings), so A/m ~ 0.02 m²/kg; approximate public values, enough for an order
+# of magnitude.
+GALILEO_AREA_TO_MASS_M2_KG = 0.02
+GALILEO_RADIUS_KM = 29600.0
+
+
+def leftover_estimates() -> list[tuple[str, float]]:
+    """Accelerations [km/s²] the propagator leaves out, at Galileo's altitude."""
+    return [
+        (
+            "Solar radiation pressure (A/m 0.02 m²/kg)",
+            ephemeris.srp_acceleration_km_s2(GALILEO_AREA_TO_MASS_M2_KG),
+        ),
+        (
+            "J3 zonal harmonic",
+            ephemeris.zonal_acceleration_km_s2(3, ephemeris.J3, GALILEO_RADIUS_KM),
+        ),
+    ]
 
 
 # ---------- Figure ----------
@@ -378,6 +405,7 @@ def plot_validation(path: Path, results: dict[int, dict]) -> None:
         [],
         extra=list(zip(handles, [label for _, label in FIGURE_MODELS], strict=True)),
         handler_map={tuple: HandlerTuple(ndivide=None, pad=0.3)},
+        ncol=2,  # one row is wider than the two panels
         handlelength=3.2,
         handletextpad=0.6,
     )

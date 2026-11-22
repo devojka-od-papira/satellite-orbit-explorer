@@ -1,6 +1,6 @@
 """Sun and Moon positions against known events, and their pull on a satellite."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import numpy as np
 import pytest
@@ -10,13 +10,16 @@ from orbit_explorer.ephemeris import (
     J2000_TT,
     MU_MOON_KM3_S2,
     MU_SUN_KM3_S2,
-    TT_MINUS_UTC_S,
     centuries_tt,
+    drift_km,
     moon_position,
     obliquity_rad,
+    srp_acceleration_km_s2,
     sun_position,
     third_body_acceleration,
+    zonal_acceleration_km_s2,
 )
+from orbit_explorer.timescales import TT_MINUS_UTC_S
 
 
 def at(year, month, day, hour=0, minute=0):
@@ -39,17 +42,40 @@ def angle_gap(a, b):
 
 
 def test_time_argument():
-    assert centuries_tt(0, J2000_TT - timedelta(seconds=TT_MINUS_UTC_S)) == 0
-    assert centuries_tt(86400 * 36525, J2000_TT) == pytest.approx(1, abs=1e-6)
+    """TT = UTC + 69.184 s; centuries since J2000 (2000-01-01 12:00 TT)."""
+    assert TT_MINUS_UTC_S == pytest.approx(69.184)
+    start = at(2026, 1, 1)
+    days = (start - J2000_TT).total_seconds() / 86400 + TT_MINUS_UTC_S / 86400
+    assert centuries_tt(0, start) == pytest.approx(days / 36525, abs=1e-15)
+    assert centuries_tt(86400, start) - centuries_tt(0, start) == pytest.approx(
+        1 / 36525
+    )
+
+
+@pytest.mark.parametrize(
+    "start, message",
+    [(at(2016, 6, 1), "2017"), (at(2026, 12, 31, 12), "Bulletin C")],
+    ids=["before-2017", "past-the-checked-range"],
+)
+def test_times_outside_the_leap_second_table_are_refused(start, message):
+    """The same table and check as sp3.py (timescales.py)."""
+    with pytest.raises(ValueError, match=message):
+        sun_position(np.array([0.0, 86400.0]), start)
 
 
 # ---------- The Sun ----------
+# Reference times (UTC): equinoxes and solstices from the table of UT times in
+# https://en.wikipedia.org/wiki/Equinox, cross-checked with
+# https://www.timeanddate.com/calendar/seasons.html?year=2026 (within 1 min).
+# Perihelion and aphelion (time and distance in km) from
+# https://www.timeanddate.com/astronomy/perihelion-aphelion-solstice.html,
+# converted from Belgrade time to UTC and from km to AU (149,597,870.7 km).
 @pytest.mark.parametrize(
     "when, longitude",
     [
         (at(2026, 3, 20, 14, 46), 0),  # March equinox 2026
         (at(2026, 6, 21, 8, 24), 90),  # June solstice
-        (at(2026, 9, 23, 0, 5), 180),  # September equinox
+        (at(2026, 9, 23, 0, 6), 180),  # September equinox
         (at(2026, 12, 21, 20, 50), 270),  # December solstice
     ],
     ids=["march-equinox", "june-solstice", "september-equinox", "december-solstice"],
@@ -63,10 +89,10 @@ def test_sun_at_equinoxes_and_solstices(when, longitude):
 
 
 def test_sun_distance_at_perihelion_and_aphelion():
-    near = np.linalg.norm(sun_position(0, at(2026, 1, 3, 17))) / AU_KM
-    far = np.linalg.norm(sun_position(0, at(2026, 7, 6, 18))) / AU_KM
-    assert near == pytest.approx(0.98331, abs=3e-4)
-    assert far == pytest.approx(1.01664, abs=3e-4)
+    near = np.linalg.norm(sun_position(0, at(2026, 1, 3, 17, 15))) / AU_KM
+    far = np.linalg.norm(sun_position(0, at(2026, 7, 6, 17, 30))) / AU_KM
+    assert near == pytest.approx(147_099_894 / AU_KM, abs=2e-4)  # 0.98330 AU
+    assert far == pytest.approx(152_087_774 / AU_KM, abs=2e-4)  # 1.01664 AU
 
 
 def test_sun_declination_at_the_june_solstice():
@@ -77,9 +103,12 @@ def test_sun_declination_at_the_june_solstice():
 
 
 # ---------- The Moon ----------
+# Full and new moon of January 2026 (UTC) from
+# https://www.timeanddate.com/moon/phases/?year=2026, converted from Belgrade
+# time (CET, UTC+1).
 @pytest.mark.parametrize(
     "when, elongation",
-    [(at(2026, 1, 3, 10, 3), 180), (at(2026, 1, 18, 19, 52), 0)],
+    [(at(2026, 1, 3, 10, 2), 180), (at(2026, 1, 18, 19, 52), 0)],
     ids=["full-moon", "new-moon"],
 )
 def test_moon_phases(when, elongation):
@@ -139,3 +168,24 @@ def test_size_of_the_pull_at_galileo_altitude(mu, d):
     assert np.linalg.norm(a) == pytest.approx(
         5.77e-9 if mu == MU_MOON_KM3_S2 else 2.35e-9, rel=0.02
     )
+
+
+# ---------- Orders of magnitude for what is left out ----------
+def test_solar_radiation_pressure_on_a_galileo_satellite():
+    """A/m 0.02 m²/kg: about 1.2e-10 km/s², up to ~0.4 km in a day."""
+    a = srp_acceleration_km_s2(0.02)
+    assert a == pytest.approx(1.19e-10, rel=0.02)
+    assert drift_km(a) == pytest.approx(0.44, rel=0.05)
+
+
+def test_j3_is_much_smaller_than_j2_at_galileo_altitude():
+    from orbit_explorer.j2 import J2
+
+    j2 = zonal_acceleration_km_s2(2, J2, 29_600.0)
+    j3 = zonal_acceleration_km_s2(3, -2.53266e-6, 29_600.0)
+    assert j3 / j2 == pytest.approx(
+        4 / 3 * 2.53266e-6 / J2 * 6378.137 / 29_600, rel=1e-9
+    )
+    assert j3 < j2 / 500  # about 4.6e-11 km/s²
+    # smaller than the radiation pressure estimate (0.17 vs 0.44 km a day)
+    assert drift_km(j3) < drift_km(srp_acceleration_km_s2(0.02)) / 2

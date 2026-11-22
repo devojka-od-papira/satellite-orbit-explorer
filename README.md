@@ -177,8 +177,13 @@ the GP elements of that same day (both in `data/inputs/precise/`).
   (`orbit_explorer.ephemeris`: the Sun from Meeus, the Moon from Montenbruck &
   Gill) cuts the error about ten times, to 0.14 km (GALILEO 29) and 0.36 km
   (QZS-2) RMS, better than SGP4. At Galileo's altitude the Moon pulls about
-  2.5 times as hard as the Sun (5.8e-9 vs 2.3e-9 km/s²). What is left is
-  mostly solar radiation pressure and the Earth's higher harmonics.
+  2.5 times as hard as the Sun (5.8e-9 vs 2.3e-9 km/s²).
+- **What is left is the size of solar radiation pressure.** An estimate, not
+  a model: a Galileo satellite has about 0.02 m² of sunlit area per kg, so
+  sunlight pushes it with about 1.2e-10 km/s², which unmodelled is worth up to
+  about 0.4 km in a day. The J3 harmonic is at most about 5e-11 km/s² (up to
+  0.17 km, and mostly periodic). The remaining 0.1–0.4 km RMS is likely mostly
+  radiation pressure.
 - **The ephemerides are checked against known events:** the 2026 equinoxes
   and solstices (Sun within 0.03°), and the full and new moons of January 2026
   (Moon within 0.3° of 180° and 0° from the Sun).
