@@ -68,10 +68,11 @@ def ric_components(
     )
 
 
-def compare(sat: dict, t_s: np.ndarray) -> dict:
-    """Kepler minus SGP4 at times t_s: total distance and RIC components [km]."""
-    r_sgp4, v_sgp4 = propagate_sgp4(sat, t_s)
-    r_kepler, _ = propagate_eci(sat, t_s)
+def compare(sat: dict, t_s: np.ndarray, start: datetime = START) -> dict:
+    """Kepler minus SGP4 at times t_s after ``start``: total distance and RIC
+    components [km]."""
+    r_sgp4, v_sgp4 = propagate_sgp4(sat, t_s, start)
+    r_kepler, _ = propagate_eci(sat, t_s, start)
     diff = r_kepler - r_sgp4
     return {
         "total": np.linalg.norm(diff, axis=1),
@@ -79,10 +80,11 @@ def compare(sat: dict, t_s: np.ndarray) -> dict:
     }
 
 
-def epoch_age_days(sat: dict) -> float:
-    """Days between the GP epoch and START (positive if the epoch is earlier)."""
+def epoch_age_days(sat: dict, start: datetime = START) -> float:
+    """Days between the GP epoch and ``start`` (positive if the epoch is
+    earlier); by default the window START."""
     epoch = datetime.fromisoformat(sat["EPOCH"]).replace(tzinfo=UTC)
-    return (START - epoch).total_seconds() / 86400
+    return (start - epoch).total_seconds() / 86400
 
 
 def build_summary() -> str:
