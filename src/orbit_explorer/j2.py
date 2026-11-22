@@ -33,7 +33,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-from orbit_explorer import style
+from orbit_explorer import ephemeris, style
 from orbit_explorer.elements import MU_EARTH_KM3_S2, R_EARTH_KM, load_elements
 from orbit_explorer.kepler import SPAN_S, START, time_grid_s
 from orbit_explorer.sgp4_compare import propagate_sgp4, ric_components
@@ -89,13 +89,17 @@ def propagate(
     j2: bool = True,
     substeps: int = 1,
     earth: Earth = WGS84,
+    third_body_start: datetime | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Positions [km] and velocities [km/s] on the uniform grid t_s, integrated
     with classic RK4.
 
-    ``(r0, v0)`` is the state at ``t_s[0]``; only the step between grid points
-    matters, not the absolute times. Several orbits at once: give r0 and v0 of
-    shape (N, 3) and get (len(t_s), N, 3) back, all in the same loop.
+    ``(r0, v0)`` is the state at ``t_s[0]``. Several orbits at once: give r0
+    and v0 of shape (N, 3) and get (len(t_s), N, 3) back, all in one loop.
+
+    ``third_body_start``: add the pull of the Moon and the Sun (ephemeris.py).
+    Then the absolute times matter: t_s are seconds after that UTC instant.
+    Without it only the step between grid points matters.
 
     ``substeps`` RK4 steps are taken between consecutive grid points; at the
     5 s grid one step is already far below a metre per day (see the tests).
@@ -111,19 +115,34 @@ def propagate(
         raise ValueError("propagate needs a uniform time grid")
     h = (dt[0] if len(dt) else 0.0) / substeps
 
-    def acc(x):
-        return acceleration(x, j2, earth)
+    n_steps = (len(t_s) - 1) * substeps
+    if third_body_start is not None:
+        # RK4 needs the bodies at every step and half step: compute them once
+        half = t_s[0] + 0.5 * h * np.arange(2 * n_steps + 1)
+        moon = ephemeris.moon_position(half, third_body_start)
+        sun = ephemeris.sun_position(half, third_body_start)
+
+    def acc(x, half_index):
+        a = acceleration(x, j2, earth)
+        if third_body_start is not None:
+            m, s = moon[half_index], sun[half_index]
+            a = a + ephemeris.third_body_acceleration(x, m, ephemeris.MU_MOON_KM3_S2)
+            a = a + ephemeris.third_body_acceleration(x, s, ephemeris.MU_SUN_KM3_S2)
+        return a
 
     r_out[0], v_out[0] = r, v
+    step = 0
     for k in range(1, len(t_s)):
         for _ in range(substeps):
-            a1 = acc(r)
+            i = 2 * step  # half-step index of this step's start
+            a1 = acc(r, i)
             r2_, v2_ = r + 0.5 * h * v, v + 0.5 * h * a1
-            a2 = acc(r2_)
+            a2 = acc(r2_, i + 1)
             r3_, v3_ = r + 0.5 * h * v2_, v + 0.5 * h * a2
-            a3 = acc(r3_)
+            a3 = acc(r3_, i + 1)
             r4_, v4_ = r + h * v3_, v + h * a3
-            a4 = acc(r4_)
+            a4 = acc(r4_, i + 2)
+            step += 1
             r = r + h / 6 * (v + 2 * v2_ + 2 * v3_ + v4_)
             v = v + h / 6 * (a1 + 2 * a2 + 2 * a3 + a4)
         r_out[k], v_out[k] = r, v

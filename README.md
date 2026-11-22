@@ -22,6 +22,8 @@ passes over a ground station (Belgrade, Tokyo, Sydney or Quito).
   PULSAR-0's sun-synchronous plane drift
 - Validates Kepler, SGP4 and J2 against precise SP3 orbits (GALILEO 29, QZS-2),
   with GPS time, UT1 and polar motion handled
+- Adds the Moon and the Sun to the propagator and shows they are most of the
+  remaining error
 - Computes look angles and passes from a ground station, with a sky plot
 
 ## Data
@@ -162,6 +164,7 @@ the GP elements of that same day (both in `data/inputs/precise/`).
 | SGP4 from the GP elements | **0.75 km** | **4.4 km** |
 | J2 propagator from SGP4's state at 00:00 | 0.93 km | 4.8 km |
 | J2 propagator from the precise state at 00:00 | 1.5 km | 3.3 km |
+| J2 + Moon + Sun from the precise state at 00:00 | **0.14 km** | **0.36 km** |
 
 - **SGP4 does what it was made for:** under a kilometre for GALILEO 29. Kepler
   reads its mean elements as osculating and is 20–50 km off.
@@ -169,8 +172,16 @@ the GP elements of that same day (both in `data/inputs/precise/`).
   accuracy: up there the Moon and the Sun matter more than the bulge.
 - **J2 started on the truth** leaves only the force model's error. It is
   within 100 m for the first hour, then drifts to 3–5 km by the end of the day,
-  mostly in-track. Most of that is expected to be the Moon and the Sun, which
-  the model leaves out; showing it needs a third-body model (next step).
+  mostly in-track.
+- **The Moon and the Sun are about 90% of that.** Adding them as point masses
+  (`orbit_explorer.ephemeris`: the Sun from Meeus, the Moon from Montenbruck &
+  Gill) cuts the error about ten times, to 0.14 km (GALILEO 29) and 0.36 km
+  (QZS-2) RMS, better than SGP4. At Galileo's altitude the Moon pulls about
+  2.5 times as hard as the Sun (5.8e-9 vs 2.3e-9 km/s²). What is left is
+  mostly solar radiation pressure and the Earth's higher harmonics.
+- **The ephemerides are checked against known events:** the 2026 equinoxes
+  and solstices (Sun within 0.03°), and the full and new moons of January 2026
+  (Moon within 0.3° of 180° and 0° from the Sun).
 - **Frames and time.** SP3 positions are Earth-fixed (IGc20) and in GPS time.
   The comparison converts GPS time to UTC (18 s), rotates by sidereal time at
   UT1, and applies polar motion with the IERS values for the day

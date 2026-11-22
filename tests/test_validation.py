@@ -172,6 +172,21 @@ def test_j2_from_the_precise_state_starts_on_the_truth_and_drifts(results, norad
     assert 1 < total.max() < 20  # km after a day
 
 
+@pytest.mark.parametrize("norad", list(SP3_IDS), ids=lambda n: SP3_IDS[n])
+def test_the_moon_and_the_sun_are_most_of_j2s_error(results, norad):
+    """Adding them as point masses cuts the force model's error several times
+    (GALILEO 29: 1.5 -> 0.14 km RMS; QZS-2: 3.3 -> 0.36 km) and brings it
+    below SGP4's."""
+    res = results[norad]
+
+    def rms(key):
+        return np.sqrt(np.mean(res[key]["total"] ** 2))
+
+    assert rms("j2_moon_sun_precise") < rms("j2_precise") / 4
+    assert rms("j2_moon_sun_precise") < rms("sgp4")
+    assert res["j2_moon_sun_precise"]["total"].max() < 2  # km over the day
+
+
 def test_frame_effect_of_earth_orientation(results):
     """UT1-UTC (-0.072 s) and polar motion are worth 0.1-0.3 km here."""
     effect = frame_effect_km()

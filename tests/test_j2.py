@@ -157,6 +157,34 @@ def test_compare_one_satellite_matches_the_batch(results):
         np.testing.assert_allclose(one[key]["total"], batch[key]["total"], atol=1e-9)
 
 
+def test_moon_and_sun_need_the_absolute_time():
+    """With the third bodies the same state at another date moves differently."""
+    from datetime import UTC, datetime
+
+    r0, v0 = circular_state(42_164.0, incl_deg=0.1)  # geostationary
+    t = T[: 6 * 720 + 1]  # six hours
+    plain, _ = propagate(r0, v0, t)
+    nov, _ = propagate(r0, v0, t, third_body_start=datetime(2026, 11, 17, tzinfo=UTC))
+    may, _ = propagate(r0, v0, t, third_body_start=datetime(2026, 5, 17, tzinfo=UTC))
+    gap_nov = np.linalg.norm(nov - plain, axis=1).max()
+    assert 0.1 < gap_nov < 20  # km in six hours at GEO
+    assert np.linalg.norm(nov - may, axis=1).max() > 0.05  # the bodies moved
+
+
+def test_moon_and_sun_batch_matches_one_at_a_time():
+    from datetime import UTC, datetime
+
+    start = datetime(2026, 11, 17, tzinfo=UTC)
+    states = [circular_state(a, i) for a, i in ((26_560.0, 55), (42_164.0, 40))]
+    r0 = np.array([r for r, _ in states])
+    v0 = np.array([v for _, v in states])
+    t = T[:300]
+    batch, _ = propagate(r0, v0, t, third_body_start=start)
+    for k, (r, v) in enumerate(states):
+        one, _ = propagate(r, v, t, third_body_start=start)
+        np.testing.assert_allclose(batch[:, k], one, rtol=1e-13)
+
+
 def test_non_uniform_grid_is_refused():
     r0, v0 = circular_state(7000.0)
     with pytest.raises(ValueError, match="uniform"):

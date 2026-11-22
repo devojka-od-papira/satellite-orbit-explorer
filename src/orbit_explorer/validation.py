@@ -5,15 +5,17 @@ with GFZ's precise orbits (SP3, centimetre level) for the two satellites that
 have them, GALILEO 29 and QZS-2, on 2026-11-17: the day of the stored SP3 file
 and of the GP elements kept next to it in data/inputs/precise/.
 
-Four models, all for that day:
+Five models, all for that day:
 
 - **Kepler** from the GP elements (two-body, mean elements read as osculating);
 - **SGP4** from the same GP elements;
 - **J2 from SGP4's state**: the numerical J2 propagator started on SGP4 at 00:00;
 - **J2 from the precise state**: the same propagator started on the precise
   orbit at 00:00, so its error comes from the force model, not the GP
-  elements. Most of it is expected to be the Moon and the Sun, which the model
-  leaves out (not yet shown: that needs a third-body model).
+  elements;
+- **J2 + Moon + Sun from the precise state**: the same, with the Moon and the
+  Sun as point masses (ephemeris.py). It shows how much of J2's error they
+  are: about 90%.
 
 Comparing needs the same frame and time scale on both sides:
 
@@ -105,6 +107,7 @@ MODELS = (
     ("sgp4", "SGP4 (GP elements)"),
     ("j2_sgp4", "J2 from SGP4's state"),
     ("j2_precise", "J2 from the precise state"),
+    ("j2_moon_sun_precise", "J2 + Moon + Sun from the precise state"),
 )
 REPORT_HOURS = (1, 6, 12, 23)  # the SP3 day ends at 23:59:42 UTC
 
@@ -215,11 +218,15 @@ def validate(
         r_kepler, _ = propagate_eci(sat, t, PRECISE_START)
         r_j2_sgp4, _ = j2.propagate(r_sgp4[0], v_sgp4[0], t)
         r_j2_precise, _ = j2.propagate(r_true[0], v_true[0], t)
+        r_j2_moon_sun, _ = j2.propagate(
+            r_true[0], v_true[0], t, third_body_start=PRECISE_START
+        )
         positions = {
             "kepler": r_kepler,
             "sgp4": r_sgp4,
             "j2_sgp4": r_j2_sgp4,
             "j2_precise": r_j2_precise,
+            "j2_moon_sun_precise": r_j2_moon_sun,
         }
         res = {"sat": sat, "sat_id": sat_id, "t": t}
         for key, r in positions.items():
@@ -264,7 +271,7 @@ def build_summary(results: dict[int, dict], frame_km: dict[int, float]) -> str:
         ),
         "",
         "Distance from the precise orbit [km]",
-        f"{'Satellite':24s} {'model':26s}{hours}{'RMS':>9s}{'max':>9s}",
+        f"{'Satellite':24s} {'model':38s}{hours}{'RMS':>9s}{'max':>9s}",
     ]
     for res in results.values():
         name = res["sat"]["OBJECT_NAME"]
@@ -273,19 +280,19 @@ def build_summary(results: dict[int, dict], frame_km: dict[int, float]) -> str:
             at = "".join(f"{total[i]:9.2f}" for i in idx)
             rms = np.sqrt(np.mean(total**2))
             lines.append(
-                f"{name if k == 0 else '':24s} {label:26s}{at}{rms:9.2f}{total.max():9.2f}"
+                f"{name if k == 0 else '':24s} {label:38s}{at}{rms:9.2f}{total.max():9.2f}"
             )
     lines += [
         "",
         "Largest component of each model's error over the day [km]",
-        f"{'Satellite':24s} {'model':26s} {'radial':>8s} {'in-track':>9s} {'cross':>8s}",
+        f"{'Satellite':24s} {'model':38s} {'radial':>8s} {'in-track':>9s} {'cross':>8s}",
     ]
     for res in results.values():
         name = res["sat"]["OBJECT_NAME"]
         for k, (key, label) in enumerate(MODELS):
             radial, in_track, cross = np.abs(res[key]["ric"]).max(axis=0)
             lines.append(
-                f"{name if k == 0 else '':24s} {label:26s} {radial:8.2f} "
+                f"{name if k == 0 else '':24s} {label:38s} {radial:8.2f} "
                 f"{in_track:9.2f} {cross:8.2f}"
             )
     lines += [
@@ -298,21 +305,25 @@ def build_summary(results: dict[int, dict], frame_km: dict[int, float]) -> str:
     ]
     lines += [
         "",
-        "J2 from the precise state starts on the truth, so its error comes from the",
-        "force model. Most of it is expected to be the Moon and the Sun, which the",
-        "model leaves out (not yet shown).",
+        "The two runs from the precise state start on the truth, so their error is",
+        "the force model's. Adding the Moon and the Sun as point masses removes",
+        "most of J2's; what is left is mostly solar radiation pressure and the",
+        "Earth's higher harmonics, which the model still leaves out.",
         "",
     ]
     return "\n".join(lines)
 
 
 # ---------- Figure ----------
+# The figure leaves out "J2 from SGP4's state" (it follows SGP4 closely; it is
+# in the summary table) to keep four lines per panel.
 MODEL_STYLE = {
     "kepler": {"color": style.SECONDARY, "lw": 1.6, "linestyle": (0, (4, 3))},
     "sgp4": {"color": style.LABEL, "lw": 2.0},
-    "j2_sgp4": {"lw": 1.6, "alpha": 0.55},  # satellite colour, lighter
-    "j2_precise": {"lw": 2.4},  # satellite colour
+    "j2_precise": {"lw": 1.6, "alpha": 0.5},  # satellite colour, lighter
+    "j2_moon_sun_precise": {"lw": 2.4},  # satellite colour
 }
+FIGURE_MODELS = [(key, label) for key, label in MODELS if key in MODEL_STYLE]
 
 
 @style.styled
@@ -325,7 +336,7 @@ def plot_validation(path: Path, results: dict[int, dict]) -> None:
     colors = [style.sat_color(res["sat"]) for res in results.values()]
     for k, (ax, res) in enumerate(zip(axes, results.values(), strict=True)):
         h = res["t"] / 3600
-        for key, _ in MODELS:
+        for key, _ in FIGURE_MODELS:
             kw = {"color": colors[k], **MODEL_STYLE[key]}
             ax.plot(h[1:], res[key]["total"][1:], **kw)  # 00:00 is 0 for one
         ax.set_yscale("log")
@@ -359,13 +370,13 @@ def plot_validation(path: Path, results: dict[int, dict]) -> None:
         (line(key, colors[0]), line(key, colors[1]))
         if "color" not in MODEL_STYLE[key]
         else line(key, None)
-        for key, _ in MODELS
+        for key, _ in FIGURE_MODELS
     ]
     style.dot_legend(
         axes[0],
         [],
         [],
-        extra=list(zip(handles, [label for _, label in MODELS], strict=True)),
+        extra=list(zip(handles, [label for _, label in FIGURE_MODELS], strict=True)),
         handler_map={tuple: HandlerTuple(ndivide=None, pad=0.3)},
         handlelength=3.2,
         handletextpad=0.6,
