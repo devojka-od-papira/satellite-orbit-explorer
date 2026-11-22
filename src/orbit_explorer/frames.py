@@ -14,9 +14,10 @@ WGS84_E2 = WGS84_F * (2 - WGS84_F)  # first eccentricity squared
 J2000 = datetime(2000, 1, 1, 12, tzinfo=UTC)
 
 
-def gmst_rad(t_s: np.ndarray) -> np.ndarray:
-    """Greenwich mean sidereal angle at times t_s after START (simple linear model)."""
-    days = ((START - J2000).total_seconds() + t_s) / 86400.0
+def gmst_rad(t_s: np.ndarray, start: datetime = START) -> np.ndarray:
+    """Greenwich mean sidereal angle at times t_s after ``start`` (by default
+    the window START), with the simple linear model."""
+    days = ((start - J2000).total_seconds() + t_s) / 86400.0
     deg = 280.46061837 + 360.98564736629 * days
     return np.radians(deg % 360.0)
 
