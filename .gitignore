@@ -220,3 +220,5 @@ __marimo__/
 .streamlit/secrets.toml
 outputs/
 _site/
+# a write of the element set archive that was interrupted
+data/archive/*.tmp
