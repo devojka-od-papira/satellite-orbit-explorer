@@ -9,7 +9,8 @@ line, it then adds the new element sets to the archive in data/archive/
 (orbit_explorer.archive), so the history is kept; --no-archive skips that.
 
 CelesTrak asks clients not to download the same data more than once every two
-hours; GP data is updated a few times a day at most.
+hours; GP data is updated a few times a day at most. The refresh workflow runs
+every 6 hours, and every run of one UTC day keeps that day's window.
 """
 
 import argparse
@@ -61,6 +62,19 @@ def stale_records(manifest: dict) -> list[str]:
         if abs(age) > STALE_DAYS:
             stale.append(f"{rec['object_name']} ({age:+.1f} d)")
     return stale
+
+
+def same_refresh(
+    old_data: Path,
+    old_manifest: Path,
+    new_data: Path = DATA_PATH,
+    new_manifest: Path = MANIFEST_PATH,
+) -> bool:
+    """True if a new download changes nothing worth a commit: the same element
+    sets and the same window day (only the retrieval time differs)."""
+    old_start = json.loads(old_manifest.read_text())["reference_start_utc"]
+    new_start = json.loads(new_manifest.read_text())["reference_start_utc"]
+    return old_start == new_start and load_elements(old_data) == load_elements(new_data)
 
 
 def fetch_text(url: str) -> str:

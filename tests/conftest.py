@@ -1,6 +1,6 @@
 """Shared test data.
 
-Most tests run on the current GP data in data/inputs/, which the daily refresh
+Most tests run on the current GP data in data/inputs/, which the data refresh
 replaces every day; there they check what must hold for any day's data. Tests
 that check what one particular day shows (e.g. how much J2 helps each
 satellite, or agreement with that day's precise orbits) use a frozen copy of

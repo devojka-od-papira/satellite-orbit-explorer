@@ -64,7 +64,7 @@ Distance from GFZ's precise orbits (SP3, accurate to centimetres), RMS over
   - Tests that check the physics, not only the numbers: energy conservation,
     the exact circular orbit, J2 secular theory, tidal geometry.
   - CI on Python 3.11–3.14, plus browser tests of the 3D viewer.
-  - Daily data refresh through pull requests, with an archive of every
+  - Data refresh every 6 hours through pull requests, with an archive of every
     element set downloaded.
 
 ## Step by step
@@ -222,7 +222,7 @@ on every push to `main`):
     mkdir -p _site && cp -R web/. _site/ && cp outputs/orbits.czml _site/
     python -m http.server 8000 -d _site    # then open http://localhost:8000
 
-## Data and daily refresh
+## Data and refresh
 `data/inputs/orbital_elements.json` holds the GP records and
 `data/inputs/data_manifest.json` records where and when they were downloaded.
 The propagation window starts at midnight UTC of the download day. To refresh
@@ -232,15 +232,18 @@ from CelesTrak:
 
 This rewrites both files only if every download succeeds, then adds the new
 element sets to the [archive](#element-set-archive) (`--no-archive` skips
-that). It warns when an epoch is more than 3 days from the window start. CelesTrak asks for no more
-than one download of the same data every two hours, so the script refuses to
-download again within 2 hours (`--force` overrides).
+that). It warns when an epoch is more than 3 days from the window start.
+CelesTrak asks for no more than one download of the same data every two
+hours, so the script refuses to download again within 2 hours (`--force`
+overrides).
 
-A GitHub Actions workflow (`.github/workflows/refresh.yml`) does this every
-day. It runs the tests on the new data, then opens a pull request (or updates
-the open one) titled "Refresh GP data from CelesTrak (date)". The PR
+A GitHub Actions workflow (`.github/workflows/refresh.yml`) does this every 6
+hours: CelesTrak publishes new element sets a few times a day, and one
+download a day missed some of them. Every run of one UTC day keeps that day's
+window. It runs the tests on the new data, then opens a pull request (or
+updates the open one) titled "Refresh GP data from CelesTrak (date)". The PR
 description lists that day's model differences and passes over Belgrade.
-Merging it publishes the 3D viewer for the new day. The figures and numbers in
+Merging it, once a day is enough, publishes the 3D viewer for the new day. The figures and numbers in
 this README stay at their documented date.
 
 - **Needs a repository setting.** To let the workflow open PRs, turn on "Allow
@@ -249,9 +252,12 @@ this README stay at their documented date.
 - **Stale data is flagged.** If an element set is more than 3 days from the
   window start, the PR title ends in "stale elements" and the description
   starts with a warning.
+- **Nothing new, no commit.** A run that finds the same element sets as the
+  open PR (or main, without one) and the same window day stops there, so the
+  PR and CI only move when the data does.
 - **Your commits are safe.** If the open refresh PR has commits that the
-  workflow did not make, it skips that day and leaves a comment instead of
-  force-pushing over them. The push uses `--force-with-lease`.
+  workflow did not make, it skips the refresh and leaves a comment (once a
+  day) instead of force-pushing over them. The push uses `--force-with-lease`.
 - **Rate limit.** It counts a download on an unmerged refresh branch too.
 - **Local preview.** `DRY_RUN=1 .github/scripts/daily_refresh.sh` previews the
   PR, then puts the data and the archive back.
@@ -272,7 +278,7 @@ warning says so, in the refresh PR too.
 It is an archive of **everything downloaded**, merged or not. It goes back to
 the first committed data (10 November 2026), filled in from the git history,
 including the refresh of 19 November whose PR was closed (for a failing test,
-not for its data). Likewise the daily refresh carries over the element sets of
+not for its data). Likewise the refresh carries over the element sets of
 an unmerged refresh branch, whether its PR is open or closed, before it
 replaces the branch, so no download is lost. Every set passed fetch.py's
 validation when it was downloaded; whether it was published in the viewer is
@@ -289,7 +295,7 @@ to a newer one's epoch measures how fast an element set goes stale.
     pre-commit install
     pytest
 
-Most tests run on the current GP data, which the daily refresh replaces, so
+Most tests run on the current GP data, which the refresh replaces, so
 they only check what must hold for any day's data. Tests about what one day
 shows use a frozen copy of the 2026-11-17 data in `data/inputs/precise/`, so a
 new day can't break them. Examples: how much J2 helps each satellite, and
