@@ -8,17 +8,12 @@ VIEWER_TESTS_REQUIRED is set (the CI viewer job): then a missing Playwright or
 browser fails the run instead of skipping it into a green check.
 """
 
-import functools
 import json
 import os
-import shutil
-import threading
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 
 import pytest
 
-from orbit_explorer.czml import build_czml
+from orbit_explorer.site import build_site, launch_chromium, serve
 
 try:
     from playwright import sync_api
@@ -26,9 +21,6 @@ except ImportError:  # the test module skips itself; see test_viewer.py
     sync_api = None
 
 REQUIRED = bool(os.environ.get("VIEWER_TESTS_REQUIRED"))
-WEB_DIR = Path(__file__).resolve().parents[2] / "web"
-# Cesium needs WebGL; SwiftShader gives headless Chromium a software GPU.
-CHROMIUM_ARGS = ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"]
 
 
 def unavailable(reason: str):
@@ -38,17 +30,11 @@ def unavailable(reason: str):
     pytest.skip(reason)
 
 
-class QuietHandler(SimpleHTTPRequestHandler):
-    def log_message(self, *args):
-        pass
-
-
 @pytest.fixture(scope="session")
 def site_dir(tmp_path_factory):
     """_site as pages.yml assembles it: web/ plus orbits.czml."""
     site = tmp_path_factory.mktemp("site")
-    shutil.copytree(WEB_DIR, site, dirs_exist_ok=True)
-    (site / "orbits.czml").write_text(json.dumps(build_czml(), separators=(",", ":")))
+    build_site(site)
     return site
 
 
@@ -60,24 +46,17 @@ def site_czml(site_dir):
 
 @pytest.fixture(scope="session")
 def site_url(site_dir):
-    handler = functools.partial(QuietHandler, directory=str(site_dir))
-    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-    yield f"http://127.0.0.1:{server.server_port}/"
-    server.shutdown()
-    server.server_close()
+    with serve(site_dir) as url:
+        yield url
 
 
 @pytest.fixture(scope="session")
 def browser():
     with sync_api.sync_playwright() as p:
         try:
-            b = p.chromium.launch(args=CHROMIUM_ARGS)
+            b = launch_chromium(p)
         except sync_api.Error:
-            try:  # no bundled Chromium: use an installed Google Chrome
-                b = p.chromium.launch(channel="chrome", args=CHROMIUM_ARGS)
-            except sync_api.Error:
-                unavailable("no browser: run `playwright install chromium`")
+            unavailable("no browser: run `playwright install chromium`")
         yield b
         b.close()
 
