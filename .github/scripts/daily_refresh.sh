@@ -2,9 +2,13 @@
 # Daily data refresh: download fresh GP data from CelesTrak, run the tests on
 # it and open (or update) a pull request with the new data.
 #
+# Every new element set is also added to the archive in data/archive/
+# (orbit_explorer.archive), which keeps the history the daily data replaces.
+#
 # Run by .github/workflows/refresh.yml. Locally, DRY_RUN=1 downloads and tests
 # as usual, prints the PR title and body, and then puts data/inputs back as it
-# was; it never commits, pushes, comments or opens a PR. (outputs/ is left
+# was; it never commits, pushes, comments or opens a PR, and only says what it
+# would add to the archive. (outputs/ is left
 # showing the downloaded day; re-run the scripts to go back.)
 #
 # Opening the PR needs the repository setting "Allow GitHub Actions to create
@@ -44,6 +48,12 @@ if [ -n "$REMOTE_SHA" ]; then
   # Its manifest records a download that main doesn't know about yet.
   git show "origin/$BRANCH:data/inputs/data_manifest.json" > "$WORK/branch_manifest.json"
   SEEN+=(--seen-manifest "$WORK/branch_manifest.json")
+  # Its archive holds the element sets of every download since the last merge;
+  # the branch is replaced below, so they are carried over.
+  if git cat-file -e "origin/$BRANCH:data/archive" 2>/dev/null; then
+    mkdir "$WORK/branch"
+    git archive "origin/$BRANCH" data/archive | tar -x -C "$WORK/branch"
+  fi
 
   # Never overwrite someone's own commits on an open refresh PR. Merge commits
   # (e.g. GitHub's "Update branch") don't count. A branch whose PR was closed
@@ -72,11 +82,22 @@ set -e
 if [ "$STATUS" -eq 3 ]; then exit 0; fi
 if [ "$STATUS" -ne 0 ]; then exit "$STATUS"; fi
 
-# 2. Test the new data. A failure stops here: no commit, no PR. (CI runs the
+# 2. Archive the new element sets (and an unmerged refresh's), before the
+#    tests, which check the archive too.
+if [ "${DRY_RUN:-}" = 1 ]; then
+  python -m orbit_explorer.archive add --dry-run | tee "$WORK/archive.txt"
+else
+  if [ -d "$WORK/branch/data/archive" ]; then
+    python -m orbit_explorer.archive merge "$WORK/branch/data/archive"
+  fi
+  python -m orbit_explorer.archive add | tee "$WORK/archive.txt"
+fi
+
+# 3. Test the new data. A failure stops here: no commit, no PR. (CI runs the
 #    tests again on every Python version; this run keeps bad data out of PRs.)
 python -m pytest -q
 
-# 3. What the new day looks like, for the PR description.
+# 4. What the new day looks like, for the PR description.
 export MPLBACKEND=Agg
 python -m orbit_explorer.sgp4_compare > /dev/null
 python -m orbit_explorer.j2 > /dev/null
@@ -114,6 +135,15 @@ numbers stay at their documented date.
 $(cat "$WORK/fetch.txt")
 \`\`\`
 
+$(cat "$WORK/archive.txt")
+
+<details><summary>Element set archive</summary>
+
+\`\`\`
+$(python -m orbit_explorer.archive summary)
+\`\`\`
+</details>
+
 <details><summary>Kepler vs SGP4</summary>
 
 \`\`\`
@@ -146,13 +176,13 @@ if [ "${DRY_RUN:-}" = 1 ]; then
   exit 0
 fi
 
-# 4. One branch, replaced each day, so open refreshes never pile up. The lease
+# 5. One branch, replaced each day, so open refreshes never pile up. The lease
 #    makes the push fail if anyone pushed to the branch after the check above
 #    (an empty SHA means "the branch must still not exist").
 git config user.name "github-actions[bot]"
 git config user.email "$BOT_EMAIL"
 git switch -C "$BRANCH"
-git add "${DATA[@]}"
+git add "${DATA[@]}" data/archive
 git commit -m "$TITLE"
 git push --force-with-lease="$BRANCH:$REMOTE_SHA" origin "$BRANCH"
 
