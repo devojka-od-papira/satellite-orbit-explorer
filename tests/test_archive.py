@@ -34,8 +34,8 @@ def epochs(path) -> list[str]:
 
 # ---------- Adding ----------
 def test_one_file_per_satellite(tmp_path, rows):
-    added = archive.add_rows(rows, tmp_path)
-    assert len(added) == len(rows) == 4
+    update = archive.add_rows(rows, tmp_path)
+    assert update.added == rows and len(rows) == 4 and update.conflicts == []
     assert sorted(p.name for p in tmp_path.iterdir()) == sorted(
         f"{s['NORAD_CAT_ID']}.jsonl" for s in load_elements()
     )
@@ -49,7 +49,7 @@ def test_one_file_per_satellite(tmp_path, rows):
 def test_same_download_twice_adds_nothing(tmp_path, rows):
     archive.add_rows(rows, tmp_path)
     before = {p.name: p.read_bytes() for p in tmp_path.iterdir()}
-    assert archive.add_rows(rows, tmp_path) == []
+    assert archive.add_rows(rows, tmp_path) == archive.Update()
     assert {p.name: p.read_bytes() for p in tmp_path.iterdir()} == before
 
 
@@ -74,18 +74,37 @@ def test_first_retrieval_of_an_element_set_is_kept(tmp_path, rows):
     first = at_epoch(rows[0], epoch, "2026-11-17T18:20:03Z")
     later = at_epoch(rows[0], epoch, "2026-11-19T10:04:32Z")
     archive.add_rows([first], tmp_path)
-    assert archive.add_rows([later], tmp_path) == []
+    assert archive.add_rows([later], tmp_path) == archive.Update()
     # within one batch too, whatever the order
     other = tmp_path / "other"
-    assert archive.add_rows([later, first], other) == [first]
+    assert archive.add_rows([later, first], other) == archive.Update([first])
+
+
+def test_a_different_set_with_a_known_epoch_is_reported(tmp_path, rows):
+    """Same epoch, different elements (a re-issued set): the first stays,
+    but not silently."""
+    epoch = "2026-11-16T09:41:16.391616"
+    first = at_epoch(rows[0], epoch, "2026-11-17T18:20:03Z")
+    corrected = at_epoch(rows[0], epoch, "2026-11-19T10:04:32Z")
+    corrected["gp"]["MEAN_MOTION"] += 1e-6
+    archive.add_rows([first], tmp_path)
+
+    update = archive.add_rows([corrected], tmp_path)
+    assert update == archive.Update([], [(first, corrected)])
+    path = archive.archive_path(first["norad_cat_id"], tmp_path)
+    assert archive.read_file(path) == [first]
+    text = archive.describe(update)
+    assert "no new element sets" in text
+    assert "Warning:" in text and "different elements" in text
+    assert "retrieved 2026-11-19T10:04:32Z" in text
 
 
 def test_merge_carries_another_archive_over(tmp_path, rows):
     branch, main = tmp_path / "branch", tmp_path / "main"
     archive.add_rows([at_epoch(r, "2026-11-20T00:00:00") for r in rows], branch)
     archive.add_rows(rows, main)
-    assert len(archive.merge(branch, main)) == 4
-    assert archive.merge(branch, main) == []
+    assert len(archive.merge(branch, main).added) == 4
+    assert archive.merge(branch, main) == archive.Update()
     for row in rows:
         assert (
             len(archive.read_file(archive.archive_path(row["norad_cat_id"], main))) == 2
@@ -146,14 +165,10 @@ def test_download_with_a_satellite_missing_from_the_manifest(tmp_path):
 
 
 # ---------- Command line ----------
-def test_cli_add_dry_run_and_summary(tmp_path, capsys):
-    assert archive.main(["--archive", str(tmp_path), "add", "--dry-run"]) == 0
-    assert "DRY RUN: Archive: added" in capsys.readouterr().out
-    assert not list(tmp_path.iterdir())
-
+def test_cli_add_and_summary(tmp_path, capsys):
     assert archive.main(["--archive", str(tmp_path), "add"]) == 0
     assert "Archive: added" in capsys.readouterr().out
-    assert archive.main(["--archive", str(tmp_path), "add", "--dry-run"]) == 0
+    assert archive.main(["--archive", str(tmp_path), "add"]) == 0
     assert "no new element sets" in capsys.readouterr().out
 
     assert archive.main(["--archive", str(tmp_path), "summary"]) == 0

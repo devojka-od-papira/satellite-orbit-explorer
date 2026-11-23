@@ -12,13 +12,16 @@ one element set per line, ordered by epoch:
 
 An element set is identified by its satellite and epoch: CelesTrak serves the
 same set until a new one is published, so a download that finds no new set
-adds nothing, and the first retrieval of a set is the one kept.
+adds nothing, and the first retrieval of a set is the one kept. (A set that
+comes back with the same epoch but different elements, a correction, is
+reported, not silently dropped.)
 
 A series of element sets is what shows what a satellite does: station-keeping
 manoeuvres as jumps that no force model explains, drag lowering a LEO orbit,
 and how quickly an element set goes stale.
 
     python -m orbit_explorer.archive add             # data/inputs -> archive
+                                                     # (fetch.py does it itself)
     python -m orbit_explorer.archive merge OTHER_DIR # another archive's sets
     python -m orbit_explorer.archive summary
 """
@@ -27,6 +30,7 @@ import argparse
 import json
 import sys
 import warnings
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
@@ -149,30 +153,46 @@ def load_history(norad: int, archive_dir: Path = ARCHIVE_DIR) -> list[dict]:
     )
 
 
-def add_rows(rows: list[dict], archive_dir: Path = ARCHIVE_DIR) -> list[dict]:
-    """Add the rows whose (satellite, epoch) isn't archived yet; returns them.
+@dataclass
+class Update:
+    """What adding element sets did: the new ones, and the ones refused
+    because the archive already holds a *different* set with that epoch
+    (archived, refused): normally the same epoch means the same set, so a
+    conflict is worth a look."""
 
-    Each touched file is rewritten sorted by epoch, through a temporary file,
-    so an interrupted write leaves the old file in place.
+    added: list[dict] = field(default_factory=list)
+    conflicts: list[tuple[dict, dict]] = field(default_factory=list)
+
+
+def add_rows(rows: list[dict], archive_dir: Path = ARCHIVE_DIR) -> Update:
+    """Add the rows whose (satellite, epoch) isn't archived yet.
+
+    Of two rows with one epoch the first retrieved is kept; if their GP
+    records differ, that is reported as a conflict. Each touched file is
+    rewritten sorted by epoch, through a temporary file, so an interrupted
+    write leaves the old file in place.
     """
     by_norad: dict[int, list[dict]] = {}
     for row in rows:
         check_row(row)
         by_norad.setdefault(row["norad_cat_id"], []).append(row)
 
-    added = []
+    update = Update()
     for norad, new in by_norad.items():
         path = archive_path(norad, archive_dir)
         kept = {epoch_of(r): r for r in read_file(path, strict=True)}
         fresh = []
         for row in sorted(new, key=lambda r: (epoch_of(r), r["retrieved_utc"])):
-            if epoch_of(row) not in kept:
+            known = kept.get(epoch_of(row))
+            if known is None:
                 kept[epoch_of(row)] = row
                 fresh.append(row)
+            elif known["gp"] != row["gp"]:
+                update.conflicts.append((known, row))
         if not fresh:
             continue
         archive_dir.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".jsonl.tmp")
+        tmp = path.with_suffix(".jsonl.tmp")  # ignored by git, if left behind
         tmp.write_text(
             "".join(
                 json.dumps(kept[epoch], separators=(",", ":")) + "\n"
@@ -180,11 +200,11 @@ def add_rows(rows: list[dict], archive_dir: Path = ARCHIVE_DIR) -> list[dict]:
             )
         )
         tmp.replace(path)
-        added.extend(fresh)
-    return added
+        update.added.extend(fresh)
+    return update
 
 
-def merge(other_dir: Path, archive_dir: Path = ARCHIVE_DIR) -> list[dict]:
+def merge(other_dir: Path, archive_dir: Path = ARCHIVE_DIR) -> Update:
     """Add another archive's element sets (e.g. an unmerged refresh branch's)."""
     rows = [
         row
@@ -207,25 +227,37 @@ def summary(archive_dir: Path = ARCHIVE_DIR) -> str:
     return "\n".join(lines) if lines else f"No element sets in {archive_dir}"
 
 
-def describe(added: list[dict]) -> str:
-    if not added:
-        return "Archive: no new element sets."
-    return "Archive: added " + ", ".join(
-        f"{r['object_name']} {epoch_of(r):%Y-%m-%d %H:%M}"
-        for r in sorted(added, key=lambda r: (r["object_name"], epoch_of(r)))
-    )
+def describe(update: Update) -> str:
+    def name(r: dict) -> str:
+        return f"{r['object_name']} {epoch_of(r):%Y-%m-%d %H:%M}"
+
+    lines = [
+        "Archive: added "
+        + ", ".join(
+            map(
+                name,
+                sorted(update.added, key=lambda r: (r["object_name"], epoch_of(r))),
+            )
+        )
+        if update.added
+        else "Archive: no new element sets."
+    ]
+    for known, refused in update.conflicts:
+        lines.append(
+            f"Warning: {name(known)} was downloaded again with different elements "
+            f"(retrieved {refused['retrieved_utc']}); the archive keeps the one "
+            f"retrieved {known['retrieved_utc']}."
+        )
+    return "\n".join(lines)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--archive", type=Path, default=ARCHIVE_DIR)
     commands = parser.add_subparsers(dest="command", required=True)
-    add = commands.add_parser("add", help="archive the current download")
+    add = commands.add_parser("add", help="archive a download (fetch.py does this)")
     add.add_argument("--elements", type=Path, default=DATA_PATH)
     add.add_argument("--manifest", type=Path, default=MANIFEST_PATH)
-    add.add_argument(
-        "--dry-run", action="store_true", help="say what would be added, write nothing"
-    )
     other = commands.add_parser("merge", help="add another archive's element sets")
     other.add_argument("other", type=Path)
     commands.add_parser("summary", help="element sets per satellite")
@@ -234,25 +266,15 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "summary":
             print(summary(args.archive))
-            return 0
-        if args.command == "merge":
+        elif args.command == "merge":
             print(describe(merge(args.other, args.archive)))
-            return 0
-        rows = rows_from_download(args.elements, args.manifest)
-        if args.dry_run:
-            known = {
-                (r["norad_cat_id"], epoch_of(r))
-                for row in rows
-                for r in read_file(archive_path(row["norad_cat_id"], args.archive))
-            }
-            new = [r for r in rows if (r["norad_cat_id"], epoch_of(r)) not in known]
-            print("DRY RUN: " + describe(new))
-            return 0
-        print(describe(add_rows(rows, args.archive)))
-        return 0
+        else:
+            rows = rows_from_download(args.elements, args.manifest)
+            print(describe(add_rows(rows, args.archive)))
     except ArchiveError as err:
         print(f"Error: {err}", file=sys.stderr)
         return 1
+    return 0
 
 
 if __name__ == "__main__":

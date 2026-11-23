@@ -230,8 +230,9 @@ from CelesTrak:
 
     python -m orbit_explorer.fetch
 
-This rewrites both files only if every download succeeds. It warns when an
-epoch is more than 3 days from the window start. CelesTrak asks for no more
+This rewrites both files only if every download succeeds, then adds the new
+element sets to the [archive](#element-set-archive) (`--no-archive` skips
+that). It warns when an epoch is more than 3 days from the window start. CelesTrak asks for no more
 than one download of the same data every two hours, so the script refuses to
 download again within 2 hours (`--force` overrides).
 
@@ -253,7 +254,7 @@ this README stay at their documented date.
   force-pushing over them. The push uses `--force-with-lease`.
 - **Rate limit.** It counts a download on an unmerged refresh branch too.
 - **Local preview.** `DRY_RUN=1 .github/scripts/daily_refresh.sh` previews the
-  PR, then puts the data back.
+  PR, then puts the data and the archive back.
 
 ### Element set archive
 Each refresh replaces the GP data, so every element set it downloads is also
@@ -261,17 +262,22 @@ kept in `data/archive/`: one [JSON Lines](https://jsonlines.org/) file per
 satellite (`<NORAD id>.jsonl`), one element set per line, in epoch order, with
 the GP record, its TLE and when it was retrieved. An element set is identified
 by its epoch: CelesTrak serves the same set until it publishes a newer one, so
-a download with nothing new adds nothing.
+a download with nothing new adds nothing. If a set ever comes back with the
+same epoch but different elements (a correction), the first one is kept and a
+warning says so, in the refresh PR too.
 
     python -m orbit_explorer.archive summary   # element sets per satellite
-    python -m orbit_explorer.archive add       # archive data/inputs by hand
+    python -m orbit_explorer.archive add       # archive data/inputs (fetch does it)
 
-The archive goes back to the first committed data (10 November 2026), filled
-in from the git history, including a refresh whose PR was closed. The daily
-refresh carries over the element sets of an unmerged refresh PR before it
-replaces the branch, so none are lost when a day isn't merged. The tests check
-that every line is a complete element set, that its TLE has the same epoch,
-and that the current data is archived.
+It is an archive of **everything downloaded**, merged or not. It goes back to
+the first committed data (10 November 2026), filled in from the git history,
+including the refresh of 19 November whose PR was closed (for a failing test,
+not for its data). Likewise the daily refresh carries over the element sets of
+an unmerged refresh branch, whether its PR is open or closed, before it
+replaces the branch, so no download is lost. Every set passed fetch.py's
+validation when it was downloaded; whether it was published in the viewer is
+a separate question. The tests check that every line is a complete element
+set, that its TLE has the same epoch, and that the current data is archived.
 
 What the archive is for: a series of element sets shows what a satellite
 *does*. Station-keeping manoeuvres of SES-5 and QZS-2 appear as jumps that no

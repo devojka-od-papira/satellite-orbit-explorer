@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from orbit_explorer import fetch
+from orbit_explorer import archive, fetch
 from orbit_explorer.elements import DATA_PATH, MANIFEST_PATH, load_elements
 
 NOW = datetime(2026, 12, 1, 9, 30, 15, tzinfo=UTC)
@@ -149,6 +149,23 @@ def test_cli_exit_code_when_too_soon(data_copy, celestrak, capsys):
     write_retrieved(manifest_path, datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"))
     assert fetch.main([], data, manifest_path) == fetch.TOO_SOON_EXIT_CODE
     assert "Nothing downloaded" in capsys.readouterr().out
+
+
+def test_cli_archives_the_download(data_copy, celestrak, tmp_path, capsys):
+    """python -m orbit_explorer.fetch keeps the history: the new element sets
+    go into the archive, unless --no-archive."""
+    data, manifest_path = data_copy
+    skipped = tmp_path / "skipped"
+    assert fetch.main(["--no-archive"], data, manifest_path, skipped) == 0
+    assert not skipped.exists()
+
+    write_retrieved(manifest_path, "2026-11-01T00:00:00Z")  # past the rate limit
+    store = tmp_path / "archive"
+    assert fetch.main([], data, manifest_path, store) == 0
+    assert "Archive: added" in capsys.readouterr().out
+    for sat in load_elements(data):
+        (row,) = archive.load_history(sat["NORAD_CAT_ID"], store)
+        assert row["gp"] == sat
 
 
 def test_stale_records_from_manifest():

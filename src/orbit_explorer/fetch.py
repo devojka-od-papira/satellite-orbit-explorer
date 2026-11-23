@@ -4,7 +4,9 @@ Refreshes the satellites already in data/inputs/orbital_elements.json, in the
 same order, with one query per satellite (JSON for the elements, TLE for the
 manifest's provenance record). The propagation window starts at midnight UTC
 of the retrieval day. Nothing is written unless every satellite downloads and
-validates, so a failed run leaves the data untouched.
+validates, so a failed run leaves the data untouched. Run from the command
+line, it then adds the new element sets to the archive in data/archive/
+(orbit_explorer.archive), so the history is kept; --no-archive skips that.
 
 CelesTrak asks clients not to download the same data more than once every two
 hours; GP data is updated a few times a day at most.
@@ -17,6 +19,7 @@ import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 
+from orbit_explorer import archive
 from orbit_explorer.elements import DATA_PATH, MANIFEST_PATH, load_elements
 
 GP_URL = "https://celestrak.org/NORAD/elements/gp.php?CATNR={norad}&FORMAT={fmt}"
@@ -175,6 +178,7 @@ def main(
     argv: list[str] | None = None,
     data_path: Path = DATA_PATH,
     manifest_path: Path = MANIFEST_PATH,
+    archive_dir: Path = archive.ARCHIVE_DIR,
 ) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
@@ -188,6 +192,11 @@ def main(
         action="append",
         default=[],
         help="another manifest whose download time counts for the rate limit",
+    )
+    parser.add_argument(
+        "--no-archive",
+        action="store_true",
+        help="don't add the new element sets to the archive in data/archive/",
     )
     args = parser.parse_args(argv)
     try:
@@ -212,6 +221,14 @@ def main(
     if stale:
         print(f"Warning: epoch more than {STALE_DAYS} days old: {', '.join(stale)}")
     print(f"Written to {data_path} and {manifest_path}")
+    if args.no_archive:
+        return 0
+    try:
+        rows = archive.rows_from_download(data_path, manifest_path)
+        print(archive.describe(archive.add_rows(rows, archive_dir)))
+    except archive.ArchiveError as err:
+        print(f"Error: the data is written but not archived: {err}", file=sys.stderr)
+        return 1
     return 0
 
 
