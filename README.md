@@ -277,7 +277,11 @@ runs them in a separate job. Locally:
 Without Playwright, `pytest` skips them.
 
 The animation at the top is recorded the same way, by stepping the viewer's
-clock through four hours in headless Chromium:
+clock through four hours in headless Chromium. Like the figures, it shows
+2026-11-17: the CZML is built from that day's GP data in
+`data/inputs/precise/`, so re-running it gives the same animation
+(`--current-data` records the current day). A viewer test checks the
+recorder still works.
 
     python tools/record_viewer.py    # docs/images/viewer.webp (about 400 KB)
 
