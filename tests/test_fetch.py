@@ -144,6 +144,18 @@ def test_download_on_an_unmerged_branch_counts(data_copy, celestrak, tmp_path):
     fetch.refresh(data, manifest_path, now=NOW, seen_manifests=(missing,))
 
 
+def test_the_previous_refresh_run_counts(data_copy, celestrak, tmp_path):
+    """A run that found nothing new left no manifest; the refresh script
+    passes the previous run's end as a file with only retrieved_utc."""
+    data, manifest_path = data_copy
+    last_run = tmp_path / "last_run.json"
+    last_run.write_text('{"retrieved_utc": "2026-12-01T09:00:00Z"}')  # 30 min ago
+    with pytest.raises(fetch.TooSoon, match="0.5 h ago"):
+        fetch.refresh(data, manifest_path, now=NOW, seen_manifests=(last_run,))
+    last_run.write_text('{"retrieved_utc": "2026-12-01T07:00:00Z"}')
+    fetch.refresh(data, manifest_path, now=NOW, seen_manifests=(last_run,))
+
+
 def test_cli_exit_code_when_too_soon(data_copy, celestrak, capsys):
     data, manifest_path = data_copy
     write_retrieved(manifest_path, datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"))

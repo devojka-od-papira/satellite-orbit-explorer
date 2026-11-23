@@ -48,6 +48,18 @@ pr_number() {
 REMOTE_SHA=$(git ls-remote --heads origin "$BRANCH" | cut -f1)
 SEEN=(--seen-manifest "$LAST_DRY_RUN")
 PR=""
+
+# A run that finds nothing new stops without a commit, so its download is in
+# no manifest. Count the previous refresh runs instead: the last one to finish
+# (other than this one) may have downloaded until then. Scheduled runs are
+# often hours late, so they can bunch up; this keeps CelesTrak's 2 hours.
+LAST_RUN=$(gh run list --workflow refresh.yml --limit 5 \
+  --json databaseId,updatedAt \
+  --jq "[.[] | select(.databaseId != ${GITHUB_RUN_ID:-0}) | .updatedAt] | max // empty")
+if [ -n "$LAST_RUN" ]; then
+  printf '{"retrieved_utc": "%s"}\n' "$LAST_RUN" > "$WORK/last_run.json"
+  SEEN+=(--seen-manifest "$WORK/last_run.json")
+fi
 if [ -n "$REMOTE_SHA" ]; then
   git fetch --quiet origin "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"
   # Its manifest records a download that main doesn't know about yet.
@@ -71,9 +83,11 @@ if [ -n "$REMOTE_SHA" ]; then
       MSG="Skipped the $(date -u +%F) refresh: this PR has $OTHERS commit(s) not made by the refresh workflow, and refreshing would force-push over them. Merge or close the PR to resume the refresh."
       echo "$MSG"
       # once a day, not at every 6-hourly run
-      if [ "${DRY_RUN:-}" != 1 ] && ! gh pr view "$PR" --json comments \
-          --jq '.comments[].body' | grep -qF "Skipped the $(date -u +%F) refresh"; then
-        gh pr comment "$PR" --body "$MSG"
+      if [ "${DRY_RUN:-}" != 1 ]; then
+        COMMENTS=$(gh pr view "$PR" --json comments --jq '.comments[].body')
+        if ! grep -qF "Skipped the $(date -u +%F) refresh" <<< "$COMMENTS"; then
+          gh pr comment "$PR" --body "$MSG"
+        fi
       fi
       exit 0
     fi
@@ -95,7 +109,8 @@ if [ -d "$WORK/branch/data/archive" ]; then
     | tee "$WORK/archive.txt"
 fi
 
-# 2. Download. fetch.py refuses within 2 hours of the last download (exit 3)
+# 2. Download. fetch.py refuses within 2 hours of the last download or
+#    refresh run (exit 3)
 #    and writes nothing unless every satellite validates; then it archives the
 #    new element sets, before the tests, which check the archive too.
 set +e

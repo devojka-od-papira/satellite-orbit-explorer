@@ -243,8 +243,8 @@ download a day missed some of them. Every run of one UTC day keeps that day's
 window. It runs the tests on the new data, then opens a pull request (or
 updates the open one) titled "Refresh GP data from CelesTrak (date)". The PR
 description lists that day's model differences and passes over Belgrade.
-Merging it, once a day is enough, publishes the 3D viewer for the new day. The figures and numbers in
-this README stay at their documented date.
+Merging it publishes the 3D viewer for the new day; once a day is enough. The
+figures and numbers in this README stay at their documented date.
 
 - **Needs a repository setting.** To let the workflow open PRs, turn on "Allow
   GitHub Actions to create and approve pull requests" under Settings → Actions
@@ -258,7 +258,8 @@ this README stay at their documented date.
 - **Your commits are safe.** If the open refresh PR has commits that the
   workflow did not make, it skips the refresh and leaves a comment (once a
   day) instead of force-pushing over them. The push uses `--force-with-lease`.
-- **Rate limit.** It counts a download on an unmerged refresh branch too.
+- **Rate limit.** It counts a download on an unmerged refresh branch too, and
+  the previous refresh run, which may have downloaded without a commit.
 - **Local preview.** `DRY_RUN=1 .github/scripts/daily_refresh.sh` previews the
   PR, then puts the data and the archive back.
 
