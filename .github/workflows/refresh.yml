@@ -1,8 +1,11 @@
-name: Daily data refresh
+name: Data refresh
 
 on:
   schedule:
-    - cron: "17 3 * * *" # 03:17 UTC every day (off the hour, as GitHub asks)
+    # every 6 hours, off the hour as GitHub asks. CelesTrak publishes new
+    # element sets a few times a day; one download a day missed some. The
+    # archive keeps every set; the PR is updated and merged as before.
+    - cron: "17 */6 * * *"
   workflow_dispatch:
 
 permissions:

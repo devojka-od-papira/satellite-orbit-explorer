@@ -292,7 +292,7 @@ def test_j2_difference_from_sgp4_is_mostly_in_track_in_leo(results):
 
 
 def test_node_drift_matches_theory_on_the_current_data():
-    """What holds for any day's data, so the daily refresh checks it.
+    """What holds for any day's data, so the data refresh checks it.
 
     Not "J2 beats a point mass by N times": how far a point mass drifts
     depends on where the satellite is at 00:00 (its osculating semi-major

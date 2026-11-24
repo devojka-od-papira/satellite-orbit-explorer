@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Daily data refresh: download fresh GP data from CelesTrak, run the tests on
-# it and open (or update) a pull request with the new data.
+# Data refresh, every 6 hours: download fresh GP data from CelesTrak, run the
+# tests on it and open (or update) a pull request with the new data. A run
+# that finds nothing new (the same element sets, the same window day) stops
+# without a commit, so the PR and CI only move when the data does.
 #
 # fetch.py also adds every new element set to the archive in data/archive/
 # (orbit_explorer.archive), which keeps the history the daily data replaces.
@@ -45,6 +47,19 @@ pr_number() {
 #    error; an empty answer means the branch doesn't exist.
 REMOTE_SHA=$(git ls-remote --heads origin "$BRANCH" | cut -f1)
 SEEN=(--seen-manifest "$LAST_DRY_RUN")
+PR=""
+
+# A run that finds nothing new stops without a commit, so its download is in
+# no manifest. Count the previous refresh runs instead: the last one to finish
+# (other than this one) may have downloaded until then. Scheduled runs are
+# often hours late, so they can bunch up; this keeps CelesTrak's 2 hours.
+LAST_RUN=$(gh run list --workflow refresh.yml --limit 5 \
+  --json databaseId,updatedAt \
+  --jq "[.[] | select(.databaseId != ${GITHUB_RUN_ID:-0}) | .updatedAt] | max // empty")
+if [ -n "$LAST_RUN" ]; then
+  printf '{"retrieved_utc": "%s"}\n' "$LAST_RUN" > "$WORK/last_run.json"
+  SEEN+=(--seen-manifest "$WORK/last_run.json")
+fi
 if [ -n "$REMOTE_SHA" ]; then
   git fetch --quiet origin "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"
   # Its manifest records a download that main doesn't know about yet.
@@ -65,9 +80,15 @@ if [ -n "$REMOTE_SHA" ]; then
     OTHERS=$(git log --no-merges "origin/main..origin/$BRANCH" --format=%ae \
       | grep -vcF "$BOT_EMAIL" || true)
     if [ "$OTHERS" -gt 0 ]; then
-      MSG="Skipped the $(date -u +%F) refresh: this PR has $OTHERS commit(s) not made by the refresh workflow, and refreshing would force-push over them. Merge or close the PR to resume the daily refresh."
+      MSG="Skipped the $(date -u +%F) refresh: this PR has $OTHERS commit(s) not made by the refresh workflow, and refreshing would force-push over them. Merge or close the PR to resume the refresh."
       echo "$MSG"
-      if [ "${DRY_RUN:-}" != 1 ]; then gh pr comment "$PR" --body "$MSG"; fi
+      # once a day, not at every 6-hourly run
+      if [ "${DRY_RUN:-}" != 1 ]; then
+        COMMENTS=$(gh pr view "$PR" --json comments --jq '.comments[].body')
+        if ! grep -qF "Skipped the $(date -u +%F) refresh" <<< "$COMMENTS"; then
+          gh pr comment "$PR" --body "$MSG"
+        fi
+      fi
       exit 0
     fi
   fi
@@ -88,7 +109,8 @@ if [ -d "$WORK/branch/data/archive" ]; then
     | tee "$WORK/archive.txt"
 fi
 
-# 2. Download. fetch.py refuses within 2 hours of the last download (exit 3)
+# 2. Download. fetch.py refuses within 2 hours of the last download or
+#    refresh run (exit 3)
 #    and writes nothing unless every satellite validates; then it archives the
 #    new element sets, before the tests, which check the archive too.
 set +e
@@ -97,6 +119,18 @@ STATUS=${PIPESTATUS[0]}
 set -e
 if [ "$STATUS" -eq 3 ]; then exit 0; fi
 if [ "$STATUS" -ne 0 ]; then exit "$STATUS"; fi
+
+# Nothing new since what is already proposed (the open PR) or published
+# (main)? Then there is nothing to commit: stop before the tests and CI.
+REF=HEAD
+if [ -n "$PR" ]; then REF="origin/$BRANCH"; fi
+git show "$REF:data/inputs/orbital_elements.json" > "$WORK/ref_elements.json"
+git show "$REF:data/inputs/data_manifest.json" > "$WORK/ref_manifest.json"
+if python -c 'import sys; from pathlib import Path; from orbit_explorer.fetch import same_refresh; sys.exit(0 if same_refresh(Path(sys.argv[1]), Path(sys.argv[2])) else 1)' \
+    "$WORK/ref_elements.json" "$WORK/ref_manifest.json"; then
+  echo "No new element sets since $REF and the same window day: nothing to commit."
+  exit 0
+fi
 
 # 3. Test the new data. A failure stops here: no commit, no PR. (CI runs the
 #    tests again on every Python version; this run keeps bad data out of PRs.)
@@ -130,7 +164,7 @@ fi
 cat > "$WORK/body.md" <<EOF
 $WARNING
 
-Daily refresh of the GP elements for the four satellites. The propagation
+Refresh of the GP elements for the four satellites. The propagation
 window moves to **$DAY 00:00 UTC**. All tests pass on the new data.
 
 Merging publishes the 3D viewer for the new day. The README figures and
@@ -170,8 +204,8 @@ $(cat outputs/visibility.txt)
 \`\`\`
 </details>
 
-_Opened by the daily refresh workflow. If a newer refresh runs before this is
-merged, it updates this PR instead of opening another._
+_Opened by the refresh workflow, which runs every 6 hours. A newer refresh
+with new element sets updates this PR instead of opening another._
 EOF
 
 if [ "${DRY_RUN:-}" = 1 ]; then

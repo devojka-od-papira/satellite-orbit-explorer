@@ -1,4 +1,4 @@
-"""An archive of every GP element set the daily refresh has downloaded.
+"""An archive of every GP element set the data refresh has downloaded.
 
 The refresh replaces data/inputs/orbital_elements.json each day; this keeps
 the history. One JSON Lines file per satellite, data/archive/<NORAD id>.jsonl,

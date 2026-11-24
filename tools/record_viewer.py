@@ -7,7 +7,7 @@ animated WebP.
 
 By default it records the day the README figures are pinned to, 2026-11-17:
 the CZML is built from the GP data of that day in data/inputs/precise/, not
-from the current data that the daily refresh replaces, so re-running it gives
+from the current data that the data refresh replaces, so re-running it gives
 the same animation. ``--current-data`` records the current day instead.
 
     pip install -e ".[viewer]" && playwright install chromium

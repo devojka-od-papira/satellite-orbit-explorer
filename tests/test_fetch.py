@@ -144,6 +144,18 @@ def test_download_on_an_unmerged_branch_counts(data_copy, celestrak, tmp_path):
     fetch.refresh(data, manifest_path, now=NOW, seen_manifests=(missing,))
 
 
+def test_the_previous_refresh_run_counts(data_copy, celestrak, tmp_path):
+    """A run that found nothing new left no manifest; the refresh script
+    passes the previous run's end as a file with only retrieved_utc."""
+    data, manifest_path = data_copy
+    last_run = tmp_path / "last_run.json"
+    last_run.write_text('{"retrieved_utc": "2026-12-01T09:00:00Z"}')  # 30 min ago
+    with pytest.raises(fetch.TooSoon, match="0.5 h ago"):
+        fetch.refresh(data, manifest_path, now=NOW, seen_manifests=(last_run,))
+    last_run.write_text('{"retrieved_utc": "2026-12-01T07:00:00Z"}')
+    fetch.refresh(data, manifest_path, now=NOW, seen_manifests=(last_run,))
+
+
 def test_cli_exit_code_when_too_soon(data_copy, celestrak, capsys):
     data, manifest_path = data_copy
     write_retrieved(manifest_path, datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"))
@@ -166,6 +178,51 @@ def test_cli_archives_the_download(data_copy, celestrak, tmp_path, capsys):
     for sat in load_elements(data):
         (row,) = archive.load_history(sat["NORAD_CAT_ID"], store)
         assert row["gp"] == sat
+
+
+# ---------- Several runs a day (the workflow runs every 6 hours) ----------
+@pytest.mark.parametrize("hour", [0, 6, 12, 18])
+def test_every_run_of_a_day_keeps_its_window(data_copy, celestrak, hour):
+    data, manifest_path = data_copy
+    now = NOW.replace(hour=hour, minute=17)
+    manifest = fetch.refresh(data, manifest_path, now=now)
+    assert manifest["reference_start_utc"] == "2026-12-01T00:00:00Z"
+
+
+def test_a_run_with_nothing_new_is_the_same_refresh(data_copy, celestrak, tmp_path):
+    data, manifest_path = data_copy
+    fetch.refresh(data, manifest_path, now=NOW.replace(hour=6))
+    old_data, old_manifest = tmp_path / "old.json", tmp_path / "old_manifest.json"
+    shutil.copy(data, old_data)
+    shutil.copy(manifest_path, old_manifest)
+
+    # 6 hours later CelesTrak still serves the same sets: nothing to commit
+    fetch.refresh(data, manifest_path, now=NOW.replace(hour=12))
+    assert (
+        json.loads(manifest_path.read_text())["retrieved_utc"]
+        != json.loads(old_manifest.read_text())["retrieved_utc"]
+    )
+    assert fetch.same_refresh(old_data, old_manifest, data, manifest_path)
+
+    # a new element set is worth a commit
+    norad = load_elements(data)[0]["NORAD_CAT_ID"]
+    url = fetch.GP_URL.format(norad=norad, fmt="JSON")
+    record = json.loads(celestrak[url])[0]
+    celestrak[url] = json.dumps([{**record, "EPOCH": "2026-12-01T15:00:00.000000"}])
+    fetch.refresh(data, manifest_path, now=NOW.replace(hour=18))
+    assert not fetch.same_refresh(old_data, old_manifest, data, manifest_path)
+
+
+def test_the_same_sets_on_a_new_day_move_the_window(data_copy, celestrak, tmp_path):
+    """After midnight the viewer must move to the new day, new sets or not."""
+    data, manifest_path = data_copy
+    fetch.refresh(data, manifest_path, now=NOW.replace(hour=18))
+    old_data, old_manifest = tmp_path / "old.json", tmp_path / "old_manifest.json"
+    shutil.copy(data, old_data)
+    shutil.copy(manifest_path, old_manifest)
+    fetch.refresh(data, manifest_path, now=datetime(2026, 12, 2, 0, 17, tzinfo=UTC))
+    assert load_elements(data) == load_elements(old_data)
+    assert not fetch.same_refresh(old_data, old_manifest, data, manifest_path)
 
 
 def test_stale_records_from_manifest():
