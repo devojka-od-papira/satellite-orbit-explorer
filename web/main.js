@@ -572,18 +572,14 @@ const liveScratch = {
   time: new Cesium.JulianDate(),
 };
 
-function epochJulianDay(epoch) {
-  // OMM epochs carry microseconds, but satellite.js reads EPOCH into a JS Date,
-  // which keeps milliseconds: up to 1 ms, about 7 m along a LEO orbit. Rebuild
-  // the epoch from the text, as Python's sgp4 does.
-  const m = epoch.match(/^(.*T\d\d:\d\d:\d\d)(\.\d+)?Z?$/);
-  const seconds = Date.parse(`${m[1]}Z`) / 1000 + Number(m[2] ?? 0);
-  return seconds / 86400 + 2440587.5;
-}
-
 function sgp4At(sat, time) {
   // TEME position [km] and velocity [km/s], or undefined if SGP4 fails.
-  const r = sgp4lib.propagate(sat.satrec, Cesium.JulianDate.toDate(time));
+  // satellite.js's propagate() takes a JS Date, which keeps milliseconds (and
+  // json2satrec reads the epoch into one too): up to 1 ms, about 7 m along a
+  // LEO orbit. Minutes since the epoch from JulianDates (both from the text,
+  // to the microsecond) go straight to sgp4(), as Python's sgp4 does.
+  const minutes = Cesium.JulianDate.secondsDifference(time, sat.epochJd) / 60;
+  const r = sgp4lib.sgp4(sat.satrec, minutes);
   return r && typeof r.position === "object" ? r : undefined;
 }
 
@@ -792,7 +788,10 @@ function setMode(next) {
       startTime: clock.startTime.clone(),
       stopTime: clock.stopTime.clone(),
       currentTime: clock.currentTime.clone(),
-      multiplier: clock.multiplier,
+      // the day's own speed, not a short pass's slowed one: slowPass is
+      // cleared below, so nothing would speed the clock up again
+      multiplier: slowPass ? defaultMultiplier : clock.multiplier,
+      shouldAnimate: clock.shouldAnimate,
       clockRange: clock.clockRange,
       clockStep: clock.clockStep,
     };
@@ -836,7 +835,6 @@ async function prepareLiveMode() {
       if (!g) throw new Error(`gp.json has no elements for ${sat.norad}`);
       const satrec = lib.json2satrec(g);
       if (satrec.error) throw new Error(`SGP4 error ${satrec.error} for ${sat.norad}`);
-      satrec.jdsatepoch = epochJulianDay(g.EPOCH);
       return { sat, gp: g, satrec };
     });
     sgp4lib = lib;

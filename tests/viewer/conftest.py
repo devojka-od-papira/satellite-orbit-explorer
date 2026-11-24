@@ -44,6 +44,16 @@ def site_czml(site_dir):
     return json.loads((site_dir / "orbits.czml").read_text())
 
 
+@pytest.fixture(scope="module")
+def czml_passes(site_czml):
+    """Passes per station slug, from the same CZML the page loads."""
+    return {
+        p["id"][len("station-") :]: json.loads(p["properties"]["passes"])
+        for p in site_czml
+        if p["id"].startswith("station-")
+    }
+
+
 @pytest.fixture(scope="session")
 def site_url(site_dir):
     with serve(site_dir) as url:

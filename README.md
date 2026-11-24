@@ -208,10 +208,11 @@ is built), and the clock runs in real time from now. For the chosen station
 each satellite's line gives its elevation now and its next rise or set within
 24 hours; the panel also says how old the elements are. Checked in the
 browser tests against Python:
-- **SGP4:** the same TEME positions as Python's `sgp4` library, to under a
-  metre (at most 9 cm) over three days. satellite.js reads the OMM epoch into
-  a JavaScript `Date`, which keeps only milliseconds, about 7 m along a LEO
-  orbit; the page rebuilds the epoch from the text, as Python does.
+- **SGP4:** the same TEME positions as Python's `sgp4` library over three
+  days, to under a millimetre. satellite.js's `propagate` takes a JavaScript
+  `Date`, which keeps only milliseconds (up to 7 m along a LEO orbit), so the
+  page passes SGP4 the minutes since the epoch, both times kept to the
+  microsecond, as Python does.
 - **Frame:** the Earth-fixed position agrees to a metre with TEME turned by
   IAU-82 GMST (`validation.gmst_ut1`).
 - **Passes:** the next rise and set within a minute of `visibility.py`'s, the

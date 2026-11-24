@@ -1,6 +1,5 @@
 """The 3D viewer in a real browser: loading, the panel, stations and passes."""
 
-import json
 import os
 import re
 from datetime import datetime
@@ -24,16 +23,6 @@ pytestmark = pytest.mark.viewer
 
 SATS = load_elements()
 SHORT_PASS_S = 15 * 60  # main.js plays passes shorter than this at 30x
-
-
-@pytest.fixture(scope="module")
-def czml_passes(site_czml):
-    """Passes per station slug, from the same CZML the page loads."""
-    return {
-        p["id"][len("station-") :]: json.loads(p["properties"]["passes"])
-        for p in site_czml
-        if p["id"].startswith("station-")
-    }
 
 
 def parse_deg(text: str) -> float:

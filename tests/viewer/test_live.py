@@ -17,6 +17,7 @@ except ImportError:
     pytest.skip('needs pip install -e ".[viewer]"', allow_module_level=True)
 
 from sgp4.api import jday
+from test_viewer import short_complete_pass
 
 from orbit_explorer.elements import load_elements
 from orbit_explorer.frames import eci_to_ecef
@@ -30,13 +31,15 @@ pytestmark = pytest.mark.viewer
 
 SATS = load_elements()
 # From the start of the GP data's day to three days on: around the epochs and
-# a little beyond, where the live mode is used.
-OFFSETS_S = [0, 3 * 3600 + 17.5, 12 * 3600, 3 * 86400 + 600]
+# a little beyond, where the live mode is used. One time is between two
+# milliseconds (0.4 ms is about 3 m along a LEO orbit): a JS Date would lose it.
+OFFSETS_S = [0, 3 * 3600 + 17.5004, 12 * 3600, 3 * 86400 + 600]
 
 
 def iso(seconds_after_start: float) -> str:
+    """ISO 8601 UTC to the microsecond (Cesium keeps all of it)."""
     t = START + timedelta(seconds=seconds_after_start)
-    return f"{t:%Y-%m-%dT%H:%M:%S.%f}"[:-3] + "Z"
+    return f"{t:%Y-%m-%dT%H:%M:%S.%f}Z"
 
 
 def parse_deg(text: str) -> float:
@@ -91,6 +94,33 @@ def test_switching_back_restores_the_day(live):
     v.pick_station("Tokyo")
     v.page.click("#mode-now")
     assert v.js("location.search + location.hash") == "?now#tokyo"
+    assert v.errors == []
+
+
+def test_back_from_now_the_day_plays_as_it_did(open_viewer, czml_passes):
+    """The day's clock comes back as it was: paused if it was paused, and at
+    the day's speed even if Now was chosen during a slowed-down short pass."""
+    v = open_viewer()
+    assert v.wait_for_live_mode() == "ready"
+    default = v.js("explorer.viewer.clock.multiplier")
+    found = short_complete_pass(czml_passes)
+    if found is not None:
+        station, i, _ = found
+        v.pick_station(station.name)
+        v.page.locator(".pass").nth(i).click()
+        assert v.js("explorer.viewer.clock.multiplier") == 30
+        v.page.click("#mode-now")
+        v.page.click("#mode-day")
+        assert v.js("explorer.viewer.clock.multiplier") == default
+        assert v.js("explorer.viewer.clock.shouldAnimate")
+    v.set_time(iso(6 * 3600))  # pauses the clock
+    v.page.click("#mode-now")
+    assert v.js("explorer.viewer.clock.shouldAnimate")  # live: it runs
+    v.page.click("#mode-day")
+    assert not v.js("explorer.viewer.clock.shouldAnimate")
+    assert v.js(
+        "Cesium.JulianDate.toIso8601(explorer.viewer.clock.currentTime, 0)"
+    ) == (f"{START + timedelta(hours=6):%Y-%m-%dT%H:%M:%S}Z")
     assert v.errors == []
 
 
@@ -201,15 +231,22 @@ def _seconds(iso_text: str) -> float:
     return datetime.fromisoformat(iso_text).timestamp()
 
 
-def test_panel_shows_element_age(live):
-    """Each line ends with how old the elements are at the clock's time."""
-    at = START + timedelta(hours=12)
-    live.set_time(iso(12 * 3600))
+EPOCHS = [datetime.fromisoformat(s["EPOCH"] + "+00:00") for s in SATS]
+
+
+@pytest.mark.parametrize(
+    "at",
+    [min(EPOCHS) - timedelta(hours=6), max(EPOCHS) + timedelta(hours=12)],
+    ids=["before-the-epochs", "after"],
+)
+def test_panel_shows_element_age(live, at):
+    """Each line ends with how old the elements are at the clock's time, or
+    how much later they are, when the clock is before their epoch."""
+    live.set_time(iso((at - START).total_seconds()))
     lines = live.js("explorer.satellites.map(s => s.live.textContent)")
-    for sat, line in zip(SATS, lines, strict=True):
-        epoch = datetime.fromisoformat(sat["EPOCH"] + "+00:00")
+    for epoch, line in zip(EPOCHS, lines, strict=True):
         age_h = (at - epoch).total_seconds() / 3600
-        m = re.search(r"elements (?:(\d+) h|([\d.]+) d) (old|later)$", line)
+        m = re.search(r"elements (?:from )?(?:(\d+) h|([\d.]+) d) (old|later)$", line)
         assert m, line
         shown_h = float(m[1]) if m[1] else float(m[2]) * 24
         assert m[3] == ("old" if age_h >= 0 else "later"), line
