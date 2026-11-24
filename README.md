@@ -11,7 +11,8 @@ step against precise GNSS orbits.
 
 **[Open the 3D viewer](https://devojka-od-papira.github.io/satellite-orbit-explorer/)**:
 the satellites on a globe over one day, with Kepler and SGP4 side by side,
-and the passes over a ground station.
+and the passes over a ground station. **[Or see them live](https://devojka-od-papira.github.io/satellite-orbit-explorer/?now)**:
+SGP4 running in the browser, with the next pass over the station.
 
 [![The 3D viewer over four hours: PULSAR-0 circles the Earth while the panel shows each satellite's live state](docs/images/viewer.webp)](https://devojka-od-papira.github.io/satellite-orbit-explorer/)
 
@@ -200,6 +201,25 @@ For the chosen ground station it adds:
 A link ending in `#tokyo`, `#sydney` or `#quito` opens on that station. The
 interface follows Apple's dark design, to match the figures.
 
+**Live mode** (*Now*, or a link with [`?now`](https://devojka-od-papira.github.io/satellite-orbit-explorer/?now)):
+the page runs SGP4 itself, with [satellite.js](https://github.com/shashwatak/satellite-js)
+on the same GP elements (`gp.json`, copied from `data/inputs/` when the site
+is built), and the clock runs in real time from now. For the chosen station
+each satellite's line gives its elevation now and its next rise or set within
+24 hours; the panel also says how old the elements are. Checked in the
+browser tests against Python:
+- **SGP4:** the same TEME positions as Python's `sgp4` library, to under a
+  metre (at most 9 cm) over three days. satellite.js reads the OMM epoch into
+  a JavaScript `Date`, which keeps only milliseconds, about 7 m along a LEO
+  orbit; the page rebuilds the epoch from the text, as Python does.
+- **Frame:** the Earth-fixed position agrees to a metre with TEME turned by
+  IAU-82 GMST (`validation.gmst_ut1`).
+- **Passes:** the next rise and set within a minute of `visibility.py`'s, the
+  highest elevation within 1°.
+
+If satellite.js or `gp.json` doesn't load, the *Now* button stays off and the
+one-day view works as before.
+
 ![Belgrade ground station in the 3D viewer during a PULSAR-0 pass](docs/images/viewer_station.jpg)
 
 ## Run it
@@ -220,6 +240,7 @@ on every push to `main`):
 
     python -m orbit_explorer.czml
     mkdir -p _site && cp -R web/. _site/ && cp outputs/orbits.czml _site/
+    cp data/inputs/orbital_elements.json _site/gp.json   # for the live mode
     python -m http.server 8000 -d _site    # then open http://localhost:8000
 
 ## Data and refresh

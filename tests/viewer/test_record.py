@@ -36,6 +36,7 @@ def test_records_frames_of_the_pinned_day(tmp_path, capsys):
 
 
 def test_pinned_day_is_the_readme_day():
-    czml, start = record_viewer.pinned_day()
+    czml, start, gp = record_viewer.pinned_day()
     assert f"{start:%Y-%m-%d}" == "2026-11-17"
     assert czml[0]["clock"]["currentTime"].startswith("2026-11-17")
+    assert gp.name == "gp_2026-11-17.json"  # the live mode's elements, same day

@@ -6,7 +6,7 @@
     <title>Satellite Orbit Explorer</title>
     <meta
       name="description"
-      content="Four real navigation satellites (LEO, MEO, GEO, IGSO) on a 3D globe, propagated with Kepler's equation from CelesTrak data."
+      content="Four real navigation satellites (LEO, MEO, GEO, IGSO) on a 3D globe: one day with Kepler and SGP4, or live now, from CelesTrak data."
     />
     <link
       rel="stylesheet"
@@ -25,11 +25,24 @@
     <aside id="panel" class="material" aria-label="Satellites and view options">
       <header>
         <h1>Satellite Orbit Explorer</h1>
-        <p class="subtitle">
+        <p class="subtitle" id="subtitle-day">
           Four navigation satellites over one day<span id="window-date"></span>.
           Kepler and SGP4 propagation from CelesTrak GP data.
         </p>
+        <p class="subtitle" id="subtitle-now" hidden>
+          Four navigation satellites, live. SGP4 runs in your browser on the
+          latest CelesTrak GP data.
+        </p>
       </header>
+
+      <section>
+        <h2>Time</h2>
+        <div class="segmented" role="group" aria-label="Time">
+          <button type="button" id="mode-day" aria-pressed="true">One day</button>
+          <button type="button" id="mode-now" aria-pressed="false" disabled>Now</button>
+        </div>
+        <p class="hint" id="mode-hint">Loading the live mode…</p>
+      </section>
 
       <section>
         <h2>Satellites</h2>

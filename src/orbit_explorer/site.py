@@ -15,6 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 WEB_DIR = ROOT / "web"
+GP_PATH = ROOT / "data/inputs/orbital_elements.json"
 # Cesium needs WebGL; SwiftShader gives headless Chromium a software GPU.
 CHROMIUM_ARGS = ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"]
 
@@ -24,15 +25,19 @@ class QuietHandler(SimpleHTTPRequestHandler):
         pass
 
 
-def build_site(folder: Path, czml: list[dict] | None = None) -> None:
-    """_site as pages.yml assembles it: web/ plus orbits.czml (built from the
-    current data unless given)."""
+def build_site(
+    folder: Path, czml: list[dict] | None = None, gp: Path = GP_PATH
+) -> None:
+    """_site as pages.yml assembles it: web/, orbits.czml (built from the
+    current data unless given) and gp.json, the GP elements the live mode
+    propagates in the browser."""
     if czml is None:
         from orbit_explorer.czml import build_czml
 
         czml = build_czml()
     shutil.copytree(WEB_DIR, folder, dirs_exist_ok=True)
     (folder / "orbits.czml").write_text(json.dumps(czml, separators=(",", ":")))
+    shutil.copy(gp, folder / "gp.json")
 
 
 @contextlib.contextmanager

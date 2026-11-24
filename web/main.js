@@ -22,6 +22,14 @@ const MODEL_HINTS = {
     "distance between them. Follow PULSAR-0 to see LEO drift apart.",
 };
 
+const MODE_HINTS = {
+  day:
+    "One UTC day, computed in advance with Kepler and SGP4, with the day's passes.",
+  now:
+    "Real time, from now. Drag the timeline to look ahead or back; the next " +
+    "passes follow the clock.",
+};
+
 const WHOLE_EARTH_HEIGHT_M = 9e7; // far enough to see the GEO ring
 const LIVE_UPDATE_MS = 250;
 const SHORT_PASS_S = 15 * 60; // LEO passes: slow the clock down to watch them
@@ -64,12 +72,20 @@ const ui = {
   noPasses: document.getElementById("no-passes"),
   passList: document.getElementById("pass-list"),
   showStation: document.getElementById("show-station"),
+  modeDay: document.getElementById("mode-day"),
+  modeNow: document.getElementById("mode-now"),
+  modeHint: document.getElementById("mode-hint"),
+  subtitleDay: document.getElementById("subtitle-day"),
+  subtitleNow: document.getElementById("subtitle-now"),
 };
 
 let frame = "fixed";
 let model = "both";
+let mode = "day"; // "day": the CZML day; "now": live SGP4 in the browser
 let inertialReset = false; // next inertial camera update jumps to the whole-Earth view
-const satellites = []; // { entity, track, orbit, sgp4, sgp4orbit, button, live, sky }
+// { entity, track, orbit, sgp4, sgp4orbit, button, live, sky } from the CZML,
+// plus { gp, satrec, epochJd, liveEntity, liveOrbit } for the live mode
+const satellites = [];
 // Ground stations: [{ slug, entity, name, maskDeg, lon, lat, toLocal, rings,
 // links, passes: [{ ..., riseJd, setJd }] }]; `station` is the one shown.
 const stations = [];
@@ -153,8 +169,10 @@ function viewFromBehind(position) {
 }
 
 function follow(sat) {
-  // Cesium cannot track a hidden entity, so follow the SGP4 ring in SGP4 mode.
-  const target = model === "sgp4" ? sat.sgp4 : sat.entity;
+  // Cesium cannot track a hidden entity, so follow the SGP4 ring in SGP4 mode,
+  // and the live marker in the live mode.
+  const target =
+    mode === "now" ? sat.liveEntity : model === "sgp4" ? sat.sgp4 : sat.entity;
   setFrame("fixed");
   viewer.selectedEntity = target;
   viewer.trackedEntity = target;
@@ -163,16 +181,25 @@ function follow(sat) {
 // ---------- Layers ----------
 
 function applyVisibility() {
-  const kepler = model !== "sgp4";
-  const sgp4 = model !== "kepler";
+  const live = mode === "now";
+  const kepler = !live && model !== "sgp4";
+  const sgp4 = !live && model !== "kepler";
   for (const s of satellites) {
     s.entity.show = kepler;
     s.orbit.show = kepler && ui.orbits.checked;
     s.track.show = kepler && ui.tracks.checked; // ground tracks are Kepler only
     s.sgp4.show = sgp4;
     s.sgp4orbit.show = sgp4 && ui.orbits.checked;
+    if (s.liveEntity) {
+      s.liveEntity.show = live;
+      s.liveOrbit.show = live && ui.orbits.checked;
+    }
   }
   ui.tracks.disabled = !kepler;
+  for (const button of Object.values(ui.models)) button.disabled = live;
+  ui.modelHint.textContent = live
+    ? "The live mode uses SGP4 only."
+    : MODEL_HINTS[model];
   applyStationVisibility();
 }
 
@@ -181,13 +208,15 @@ function setModel(next) {
   for (const [name, button] of Object.entries(ui.models)) {
     button.setAttribute("aria-pressed", String(name === model));
   }
-  ui.modelHint.textContent = MODEL_HINTS[model];
   // Keep following the same satellite if its tracked marker was just hidden.
-  const tracked = satellites.find(
-    (s) => viewer.trackedEntity === s.entity || viewer.trackedEntity === s.sgp4,
-  );
+  const tracked = trackedSatellite();
   applyVisibility();
   if (tracked && !viewer.trackedEntity.show) follow(tracked);
+}
+
+function trackedSatellite() {
+  const e = viewer.trackedEntity;
+  return e && satellites.find((s) => [s.entity, s.sgp4, s.liveEntity].includes(e));
 }
 
 function addSatellite(ds, entity, start) {
@@ -376,13 +405,10 @@ function selectStation(slug) {
     }
   }
   for (const st of stations) st.button.setAttribute("aria-pressed", String(st === station));
-  ui.stationTitle.textContent = `Passes over ${station.name}`;
-  ui.stationHint.textContent =
-    `Above ${station.maskDeg}° elevation, from SGP4, times in UTC. Click a pass to ` +
-    "jump to it. Short LEO passes play slower.";
   ui.passList.replaceChildren();
   passRows = station.passes.map(addPassRow);
-  ui.noPasses.hidden = passRows.length > 0;
+  nextPasses = undefined;
+  showStationText();
   if (location.hash.slice(1) !== slug) {
     const hash = slug === stations[0].slug ? "" : `#${slug}`;
     history.replaceState(null, "", location.pathname + location.search + hash);
@@ -392,6 +418,22 @@ function selectStation(slug) {
   updateLive(viewer.clock);
 }
 
+function showStationText() {
+  // The day's pass list in the day mode; in the live mode each satellite's
+  // line says where it is now and when it next rises or sets.
+  const live = mode === "now";
+  ui.stationTitle.textContent = live
+    ? `Over ${station.name} now`
+    : `Passes over ${station.name}`;
+  ui.stationHint.textContent = live
+    ? `Above ${station.maskDeg}° elevation, from SGP4. Under each satellite: ` +
+      "its elevation now and its next rise or set, within 24 hours."
+    : `Above ${station.maskDeg}° elevation, from SGP4, times in UTC. Click a pass ` +
+      "to jump to it. Short LEO passes play slower.";
+  ui.passList.hidden = live;
+  ui.noPasses.hidden = live || passRows.length > 0;
+}
+
 function applyStationVisibility() {
   const show = ui.showStation.checked;
   for (const st of stations) {
@@ -399,7 +441,8 @@ function applyStationVisibility() {
     st.entity.show = on;
     for (const e of st.rings) e.show = on;
     // Links end at the SGP4 marker (passes come from SGP4): hide them with it.
-    for (const e of st.links) e.show = on && model !== "kepler";
+    // They follow the day's passes, so not in the live mode either.
+    for (const e of st.links) e.show = on && model !== "kepler" && mode === "day";
   }
 }
 
@@ -483,6 +526,10 @@ function updateLive(clock) {
   const now = performance.now();
   if (now - lastLiveUpdate < LIVE_UPDATE_MS) return;
   lastLiveUpdate = now;
+  if (mode === "now") {
+    updateNow(clock.currentTime);
+    return;
+  }
   for (const sat of satellites) {
     const pos = sat.entity.position.getValue(clock.currentTime, scratch.kepler);
     const pos4 = sat.sgp4.position.getValue(clock.currentTime, scratch.sgp4);
@@ -497,6 +544,322 @@ function updateLive(clock) {
     if (station) updateStation(sat, pos4);
   }
   if (station) updatePassRows(clock.currentTime);
+}
+
+// ---------- Live mode: SGP4 in the browser ----------
+
+// satellite.js is published as ES modules only; jsDelivr's +esm bundles it
+// into one file, which this classic script can import(). If it (or gp.json)
+// doesn't load, the live mode stays off and the day view works as before.
+const SATELLITE_JS = "https://cdn.jsdelivr.net/npm/satellite.js@7.1.0/+esm";
+const NEXT_PASS_HORIZON_S = 24 * 3600;
+const NEXT_PASS_STEP_S = 30;
+const NEXT_PASS_REFRESH_S = 60; // of clock time
+const PEAK_STEP_S = 2; // the top of a pass shorter than PEAK_SEARCH_MAX_S
+const PEAK_SEARCH_MAX_S = 2 * 3600;
+const ORBIT_SAMPLES = 180;
+const ORBIT_REFRESH_S = 600; // of clock time
+
+let sgp4lib; // satellite.js, once loaded
+let liveState = "loading"; // "loading", "ready" or "unavailable"
+let dayClock; // the CZML clock, put back when leaving the live mode
+let nextPasses; // { slug, at, bySat: Map(norad -> next pass) } for the station
+
+const liveScratch = {
+  teme: new Cesium.Matrix3(),
+  cartesian: new Cesium.Cartesian3(),
+  position: new Cesium.Cartesian3(),
+  time: new Cesium.JulianDate(),
+};
+
+function epochJulianDay(epoch) {
+  // OMM epochs carry microseconds, but satellite.js reads EPOCH into a JS Date,
+  // which keeps milliseconds: up to 1 ms, about 7 m along a LEO orbit. Rebuild
+  // the epoch from the text, as Python's sgp4 does.
+  const m = epoch.match(/^(.*T\d\d:\d\d:\d\d)(\.\d+)?Z?$/);
+  const seconds = Date.parse(`${m[1]}Z`) / 1000 + Number(m[2] ?? 0);
+  return seconds / 86400 + 2440587.5;
+}
+
+function sgp4At(sat, time) {
+  // TEME position [km] and velocity [km/s], or undefined if SGP4 fails.
+  const r = sgp4lib.propagate(sat.satrec, Cesium.JulianDate.toDate(time));
+  return r && typeof r.position === "object" ? r : undefined;
+}
+
+function temeToFixed(km, matrix, result) {
+  const c = Cesium.Cartesian3.fromElements(
+    km.x * 1000,
+    km.y * 1000,
+    km.z * 1000,
+    liveScratch.cartesian,
+  );
+  return Cesium.Matrix3.multiplyByVector(matrix, c, result ?? new Cesium.Cartesian3());
+}
+
+function liveFixedPosition(sat, time, result) {
+  // Earth-fixed position [m]: TEME turned by GMST, as Cesium does elsewhere
+  // without Earth-orientation data (and frames.py does in Python).
+  const r = sgp4At(sat, time);
+  if (!r) return undefined;
+  const m = Cesium.Transforms.computeTemeToPseudoFixedMatrix(time, liveScratch.teme);
+  return temeToFixed(r.position, m, result);
+}
+
+function liveOrbitPositions(sat, time) {
+  // One revolution of TEME positions, drawn with the Earth's rotation at the
+  // current time: the orbit in space, as in the day view. Recomputed every
+  // ORBIT_REFRESH_S of clock time (it changes slowly), rotated every frame.
+  let o = sat.liveOrbitCache;
+  if (!o || Math.abs(Cesium.JulianDate.secondsDifference(time, o.at)) > ORBIT_REFRESH_S) {
+    const periodS = ((2 * Math.PI) / sat.satrec.no) * 60; // no: rad/min
+    const teme = [];
+    for (let k = 0; k <= ORBIT_SAMPLES; k++) {
+      const t = Cesium.JulianDate.addSeconds(
+        time,
+        (periodS * k) / ORBIT_SAMPLES,
+        liveScratch.time,
+      );
+      const r = sgp4At(sat, t);
+      if (r) teme.push(r.position);
+    }
+    o = sat.liveOrbitCache = {
+      at: time.clone(),
+      teme,
+      fixed: teme.map(() => new Cesium.Cartesian3()),
+    };
+  }
+  const m = Cesium.Transforms.computeTemeToPseudoFixedMatrix(time, liveScratch.teme);
+  return o.teme.map((p, i) => temeToFixed(p, m, o.fixed[i]));
+}
+
+function addLiveEntities(sat) {
+  const color = Cesium.Color.fromCssColorString(sat.color);
+  sat.liveEntity = viewer.entities.add({
+    id: `live-${sat.norad}`,
+    name: sat.entity.name,
+    show: false,
+    description:
+      `<p>Live SGP4 position from the GP elements of ` +
+      `${sat.gp.EPOCH.slice(0, 16).replace("T", " ")} UTC.</p>`,
+    position: new Cesium.CallbackProperty(
+      (time, result) => liveFixedPosition(sat, time, result),
+      false,
+    ),
+    point: {
+      pixelSize: 10,
+      color,
+      outlineColor: Cesium.Color.WHITE,
+      outlineWidth: 1.5,
+    },
+    label: sat.entity.label?.clone(),
+  });
+  sat.liveOrbit = viewer.entities.add({
+    id: `live-orbit-${sat.norad}`,
+    show: false,
+    polyline: {
+      positions: new Cesium.CallbackProperty((time) => liveOrbitPositions(sat, time), false),
+      width: 1.5,
+      material: color.withAlpha(0.7),
+      arcType: Cesium.ArcType.NONE,
+    },
+  });
+}
+
+function nextPassOf(sat, from) {
+  // The next rise and set above the mask within NEXT_PASS_HORIZON_S, sampled
+  // every NEXT_PASS_STEP_S and refined by bisection to 1 s. ">=" as in
+  // visibility.find_passes. upNow: already above the mask at `from`.
+  const mask = station.maskDeg;
+  const at = (s) => Cesium.JulianDate.addSeconds(from, s, new Cesium.JulianDate());
+  const elevation = (s) => {
+    const p = liveFixedPosition(sat, at(s), liveScratch.position);
+    return p ? lookAngles(p).el : -90;
+  };
+  const crossing = (a, b) => {
+    const upA = elevation(a) >= mask;
+    while (b - a > 1) {
+      const mid = (a + b) / 2;
+      if (elevation(mid) >= mask === upA) a = mid;
+      else b = mid;
+    }
+    return b;
+  };
+  const n = NEXT_PASS_HORIZON_S / NEXT_PASS_STEP_S;
+  const el = Array.from({ length: n + 1 }, (_, k) => elevation(k * NEXT_PASS_STEP_S));
+  const upNow = el[0] >= mask;
+  let first = 0;
+  let rise;
+  if (!upNow) {
+    first = el.findIndex((e) => e >= mask);
+    if (first < 0) return { norad: sat.norad, upNow, maxEl: Math.max(...el) };
+    rise = at(crossing((first - 1) * NEXT_PASS_STEP_S, first * NEXT_PASS_STEP_S));
+  }
+  let last = el.findIndex((e, k) => k > first && e < mask);
+  let set;
+  if (last > 0) set = at(crossing((last - 1) * NEXT_PASS_STEP_S, last * NEXT_PASS_STEP_S));
+  else last = n + 1;
+  let maxEl = Math.max(...el.slice(first, last));
+  // A LEO pass lasts minutes and peaks sharply: find its top on a finer grid.
+  const fromS = Math.max(0, (first - 1) * NEXT_PASS_STEP_S);
+  const toS = Math.min(NEXT_PASS_HORIZON_S, last * NEXT_PASS_STEP_S);
+  if (toS - fromS <= PEAK_SEARCH_MAX_S) {
+    for (let t = fromS; t <= toS; t += PEAK_STEP_S) maxEl = Math.max(maxEl, elevation(t));
+  }
+  return { norad: sat.norad, upNow, rise, set, maxEl };
+}
+
+function ensureNextPasses(time) {
+  // Recompute for a new station, after NEXT_PASS_REFRESH_S of clock time
+  // either way (the timeline can be dragged back), or once a predicted rise
+  // or set has gone by.
+  const passed = (jd) => jd && Cesium.JulianDate.greaterThan(time, jd);
+  const stale =
+    !nextPasses ||
+    nextPasses.slug !== station.slug ||
+    Math.abs(Cesium.JulianDate.secondsDifference(time, nextPasses.at)) >
+      NEXT_PASS_REFRESH_S ||
+    [...nextPasses.bySat.values()].some((p) => passed(p.rise) || passed(p.set));
+  if (!stale) return;
+  nextPasses = {
+    slug: station.slug,
+    at: time.clone(),
+    bySat: new Map(
+      satellites.filter((s) => s.satrec).map((s) => [s.norad, nextPassOf(s, time)]),
+    ),
+  };
+}
+
+function inTime(from, to) {
+  const minutes = Math.round(Cesium.JulianDate.secondsDifference(to, from) / 60);
+  if (minutes < 1) return "in under a minute";
+  if (minutes < 60) return `in ${minutes} min`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m ? `in ${h} h ${m} min` : `in ${h} h`;
+}
+
+function elementAge(sat, time) {
+  const hours = Cesium.JulianDate.secondsDifference(time, sat.epochJd) / 3600;
+  const size = Math.abs(hours);
+  const text = size < 48 ? `${Math.round(size)} h` : `${(size / 24).toFixed(1)} d`;
+  return hours >= 0 ? `elements ${text} old` : `elements from ${text} later`;
+}
+
+function updateNow(time) {
+  if (station) ensureNextPasses(time);
+  const deg = (x) => `${Math.round(x)}°`.replace("-", "−");
+  for (const sat of satellites) {
+    if (!sat.satrec) continue;
+    const r = sgp4At(sat, time);
+    if (!r) {
+      sat.live.textContent = "SGP4 failed at this time";
+      continue;
+    }
+    const m = Cesium.Transforms.computeTemeToPseudoFixedMatrix(time, liveScratch.teme);
+    const pos = temeToFixed(r.position, m, scratch.sgp4);
+    const altKm = Cesium.Cartographic.fromCartesian(pos).height / 1000;
+    const v = Math.hypot(r.velocity.x, r.velocity.y, r.velocity.z); // inertial
+    sat.live.textContent =
+      `${Math.round(altKm).toLocaleString("en-US")} km · ${v.toFixed(3)} km/s` +
+      ` · ${elementAge(sat, time)}`;
+    if (!station) continue;
+    const { az, el } = lookAngles(pos);
+    const up = el >= station.maskDeg;
+    const p = nextPasses.bySat.get(sat.norad);
+    let when;
+    if (up) when = p.set ? `sets ${inTime(time, p.set)}` : "up for the next 24 h";
+    else if (p.rise) when = `rises ${inTime(time, p.rise)}, max ${deg(p.maxEl)}`;
+    else when = "doesn't rise in the next 24 h";
+    sat.sky.classList.toggle("up", up);
+    sat.sky.textContent = up
+      ? `${station.name}: ${deg(el)} up, azimuth ${deg(az)} · ${when}`
+      : `${station.name}: ${deg(el)} · ${when}`;
+  }
+}
+
+function setMode(next) {
+  if (next === mode || (next === "now" && liveState !== "ready")) return;
+  mode = next;
+  ui.modeDay.setAttribute("aria-pressed", String(mode === "day"));
+  ui.modeNow.setAttribute("aria-pressed", String(mode === "now"));
+  ui.modeHint.textContent = MODE_HINTS[mode];
+  ui.subtitleDay.hidden = mode !== "day";
+  ui.subtitleNow.hidden = mode !== "now";
+  const clock = viewer.clock;
+  if (mode === "now") {
+    dayClock = {
+      startTime: clock.startTime.clone(),
+      stopTime: clock.stopTime.clone(),
+      currentTime: clock.currentTime.clone(),
+      multiplier: clock.multiplier,
+      clockRange: clock.clockRange,
+      clockStep: clock.clockStep,
+    };
+    const now = Cesium.JulianDate.now();
+    clock.startTime = Cesium.JulianDate.addHours(now, -12, new Cesium.JulianDate());
+    clock.stopTime = Cesium.JulianDate.addHours(now, 12, new Cesium.JulianDate());
+    clock.clockRange = Cesium.ClockRange.UNBOUNDED;
+    clock.clockStep = Cesium.ClockStep.SYSTEM_CLOCK_MULTIPLIER;
+    clock.multiplier = 1;
+    clock.currentTime = now;
+    clock.shouldAnimate = true;
+    slowPass = undefined;
+  } else {
+    for (const [key, value] of Object.entries(dayClock)) clock[key] = value;
+  }
+  viewer.timeline?.zoomTo(clock.startTime, clock.stopTime);
+  nextPasses = undefined;
+  const tracked = trackedSatellite();
+  applyVisibility();
+  if (station) showStationText();
+  if (tracked) follow(tracked); // the same satellite, in the new mode
+  // A link with ?now opens the live mode; keep the station's #hash.
+  const search = mode === "now" ? "?now" : "";
+  history.replaceState(null, "", location.pathname + search + location.hash);
+  lastLiveUpdate = 0;
+  updateLive(clock);
+}
+
+async function prepareLiveMode() {
+  try {
+    const [lib, gp] = await Promise.all([
+      import(SATELLITE_JS),
+      fetch("gp.json").then((r) => {
+        if (!r.ok) throw new Error(`gp.json: HTTP ${r.status}`);
+        return r.json();
+      }),
+    ]);
+    const byNorad = new Map(gp.map((g) => [g.NORAD_CAT_ID, g]));
+    const ready = satellites.map((sat) => {
+      const g = byNorad.get(sat.norad);
+      if (!g) throw new Error(`gp.json has no elements for ${sat.norad}`);
+      const satrec = lib.json2satrec(g);
+      if (satrec.error) throw new Error(`SGP4 error ${satrec.error} for ${sat.norad}`);
+      satrec.jdsatepoch = epochJulianDay(g.EPOCH);
+      return { sat, gp: g, satrec };
+    });
+    sgp4lib = lib;
+    for (const { sat, gp: g, satrec } of ready) {
+      Object.assign(sat, {
+        gp: g,
+        satrec,
+        epochJd: Cesium.JulianDate.fromIso8601(`${g.EPOCH}Z`),
+      });
+      addLiveEntities(sat);
+      sat.liveEntity.viewFrom = sat.entity.viewFrom;
+    }
+    liveState = "ready";
+    ui.modeNow.disabled = false;
+    ui.modeHint.textContent = MODE_HINTS.day;
+    if (new URLSearchParams(location.search).has("now")) setMode("now");
+  } catch (err) {
+    liveState = "unavailable";
+    console.warn("Live mode unavailable:", err);
+    ui.modeHint.textContent =
+      "The live mode is unavailable: the SGP4 library or gp.json did not load. " +
+      "The one-day view works as before.";
+  }
 }
 
 // ---------- Info box ----------
@@ -559,6 +922,8 @@ ui.freeCamera.addEventListener("click", showWholeEarth);
 ui.tracks.addEventListener("change", applyVisibility);
 ui.orbits.addEventListener("change", applyVisibility);
 ui.showStation.addEventListener("change", applyStationVisibility);
+ui.modeDay.addEventListener("click", () => setMode("day"));
+ui.modeNow.addEventListener("click", () => setMode("now"));
 for (const [name, button] of Object.entries(ui.models)) {
   button.addEventListener("click", () => setModel(name));
 }
@@ -566,7 +931,8 @@ for (const [name, button] of Object.entries(ui.models)) {
 viewer.trackedEntityChanged.addEventListener((entity) => {
   if (entity && frame === "inertial") setFrame("fixed");
   for (const s of satellites) {
-    const pressed = entity !== undefined && (s.entity === entity || s.sgp4 === entity);
+    const pressed =
+      entity !== undefined && [s.entity, s.sgp4, s.liveEntity].includes(entity);
     s.button.setAttribute("aria-pressed", String(pressed));
   }
 });
@@ -598,7 +964,9 @@ async function main() {
     console.error(err);
     ui.loading.textContent =
       "Could not load orbits.czml. Serve this folder over HTTP (see README).";
+    return;
   }
+  await prepareLiveMode();
 }
 
 // A small, stable surface for tests/viewer and the browser console, so they
@@ -614,12 +982,42 @@ window.explorer = {
   get station() {
     return station;
   },
+  get mode() {
+    return mode;
+  },
+  /** "loading", "ready" or "unavailable" */
+  get liveState() {
+    return liveState;
+  },
+  setMode,
   /** Pause the clock at an ISO 8601 UTC time and refresh the panel now. */
   setTime(iso) {
     viewer.clock.shouldAnimate = false;
     viewer.clock.currentTime = Cesium.JulianDate.fromIso8601(iso);
     lastLiveUpdate = 0;
     updateLive(viewer.clock);
+  },
+  /** Live mode: SGP4's TEME position [km] of a satellite at an ISO time. */
+  liveTemeKm(norad, iso) {
+    const sat = satellites.find((s) => s.norad === norad);
+    const r = sgp4At(sat, Cesium.JulianDate.fromIso8601(iso));
+    return r && [r.position.x, r.position.y, r.position.z];
+  },
+  /** Live mode: the live marker's Earth-fixed position [m] at an ISO time. */
+  liveFixedM(norad, iso) {
+    const sat = satellites.find((s) => s.norad === norad);
+    const p = sat.liveEntity.position.getValue(Cesium.JulianDate.fromIso8601(iso));
+    return p && [p.x, p.y, p.z];
+  },
+  /** Live mode: each satellite's next pass over the station, from the clock. */
+  nextPasses() {
+    ensureNextPasses(viewer.clock.currentTime);
+    const iso = (jd) => jd && Cesium.JulianDate.toIso8601(jd, 0);
+    return [...nextPasses.bySat.values()].map((p) => ({
+      ...p,
+      rise: iso(p.rise),
+      set: iso(p.set),
+    }));
   },
 };
 

@@ -52,8 +52,8 @@ timeout => new Promise((resolve) => {
 """
 
 
-def pinned_day() -> tuple[list[dict], datetime]:
-    """CZML and window start for the README's day, 2026-11-17.
+def pinned_day() -> tuple[list[dict], datetime, Path]:
+    """CZML, window start and GP file for the README's day, 2026-11-17.
 
     czml.py reads data/inputs/ relative to the working directory, so it runs
     in a scratch folder holding that day's GP data instead of the current one.
@@ -74,14 +74,15 @@ def pinned_day() -> tuple[list[dict], datetime]:
         )
         czml = json.loads((Path(tmp) / "outputs/orbits.czml").read_text())
     start = json.loads(gp_manifest.read_text())["reference_start_utc"]
-    return czml, datetime.fromisoformat(start)
+    return czml, datetime.fromisoformat(start), gp
 
 
-def current_day() -> tuple[list[dict], datetime]:
+def current_day() -> tuple[list[dict], datetime, Path]:
     from orbit_explorer.czml import build_czml
     from orbit_explorer.kepler import START
+    from orbit_explorer.site import GP_PATH
 
-    return build_czml(), START
+    return build_czml(), START, GP_PATH
 
 
 def record(
@@ -94,11 +95,11 @@ def record(
 ) -> list[Image.Image]:
     """Screenshots of the viewer at ``frames`` times over ``hours`` from the
     day's start. Warns when frames were taken before the globe had settled."""
-    czml, start = current_day() if current_data else pinned_day()
+    czml, start, gp = current_day() if current_data else pinned_day()
     unsettled = 0
     with tempfile.TemporaryDirectory() as tmp:
         site = Path(tmp)
-        build_site(site, czml)
+        build_site(site, czml, gp)
         with serve(site) as url, sync_playwright() as p:
             browser = launch_chromium(p)
             page = browser.new_page(
