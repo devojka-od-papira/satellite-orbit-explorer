@@ -41,12 +41,21 @@ jobs:
           python -m orbit_explorer.sgp4_compare
           python -m orbit_explorer.j2
           python -m orbit_explorer.validation
-          python -m orbit_explorer.od
           python -m orbit_explorer.visibility
           python -m orbit_explorer.archive summary
           python -m orbit_explorer.gnss summary
           python -m orbit_explorer.dop
-          for f in orbit_report.txt ground_tracks.png speeds.png geo_vs_igso.png orbits.kml orbits.czml sgp4_comparison.txt sgp4_differences.png j2_comparison.txt j2_differences.png j2_node_drift.png validation.txt validation.png od.txt od.png visibility.txt visibility_elevation.png visibility_skyplot.png dop.txt dop.png dop_world.png; do
+          for f in orbit_report.txt ground_tracks.png speeds.png geo_vs_igso.png orbits.kml orbits.czml sgp4_comparison.txt sgp4_differences.png j2_comparison.txt j2_differences.png j2_node_drift.png validation.txt validation.png visibility.txt visibility_elevation.png visibility_skyplot.png dop.txt dop.png dop_world.png; do
+            test -s "outputs/$f" || { echo "Missing or empty: outputs/$f"; exit 1; }
+          done
+      - name: Smoke test the orbit determination
+        # about a minute, and its tests already run it on every version
+        if: matrix.python-version == '3.13'
+        env:
+          MPLBACKEND: Agg
+        run: |
+          python -m orbit_explorer.od
+          for f in od.txt od.png; do
             test -s "outputs/$f" || { echo "Missing or empty: outputs/$f"; exit 1; }
           done
       - uses: actions/upload-artifact@v4

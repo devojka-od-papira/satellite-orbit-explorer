@@ -29,7 +29,11 @@ Distance from GFZ's precise orbits (SP3, accurate to centimetres), RMS over
 | Own propagator: J2 + Moon + Sun | SGP4's state at 00:00 | 0.86 km | 2.5 km |
 | Own propagator: J2 | the precise orbit at 00:00 | 1.5 km | 3.3 km |
 | Own propagator: J2 + Moon + Sun | the precise orbit at 00:00 | **0.14 km** | **0.36 km** |
-| Orbit determination: EGM2008 + Moon + Sun + SRP | fitted to 00–12 h; RMS of the 12–24 h prediction | **0.010 km** | **0.052 km** |
+| Orbit determination: EGM2008 + Moon + Sun + SRP | fitted to 00–12 h; RMS of the 12–24 h prediction¹ | **0.010 km** | **0.052 km** |
+
+¹ A different window from the rows above (the whole day). Over the same
+12–24 h, J2 + Moon + Sun from the precise orbit is 0.21 km (GALILEO 29) and
+0.50 km (QZS-2).
 
 - **From the same start as SGP4**, the full force model is in SGP4's league:
   a bit behind for GALILEO 29 and nearly twice as good for QZS-2. Both carry
@@ -41,7 +45,9 @@ Distance from GFZ's precise orbits (SP3, accurate to centimetres), RMS over
 - **Orbit determination closes most of the rest.** With the gravity field
   beyond J2 and a fitted solar radiation pressure, a fit to the first 12
   hours predicts the next 12 within 10 m RMS for GALILEO 29 and 52 m for
-  QZS-2 ([section 5](#5-orbit-determination-fitting-the-push-of-sunlight)).
+  QZS-2, where J2 + Moon + Sun from the precise orbit is 210 m and 502 m
+  over the same 12 hours
+  ([section 5](#5-orbit-determination-fitting-the-push-of-sunlight)).
 
 ![Models against the precise orbit](docs/images/validation.png)
 

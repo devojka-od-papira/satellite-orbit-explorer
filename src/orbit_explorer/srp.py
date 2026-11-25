@@ -11,7 +11,7 @@ and switched off in the Earth's shadow:
   frame. A Y-bias, a small push along the panel axis, is a known feature of
   GNSS satellites.
 
-Parameters are in units of 1e-9 km/s² (nm/s²) at 1 AU, the size of the effect
+Parameters are in units of 1e-9 km/s² (µm/s²) at 1 AU, the size of the effect
 on a GNSS satellite (about 0.1).
 
 The shadow is the conical model of Montenbruck & Gill (2000), section 3.4.2:

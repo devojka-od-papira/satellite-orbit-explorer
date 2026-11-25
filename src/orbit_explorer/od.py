@@ -54,7 +54,9 @@ FIT_HOURS = 12
 MAX_ITERATIONS = 10
 # central difference steps: position [km], velocity [km/s], SRP [1e-9 km/s²]
 DIFF_STEPS = (1e-3, 1e-6, 1e-2)
-CONVERGED_KM = 1e-6  # a millimetre: the position correction that ends the fit
+# the fit ends when every correction is below this fraction of its step:
+# 1 mm, 1 µm/s and 1e-5 for the SRP parameters
+CONVERGED = 1e-3
 SRP_MODELS = ("none", "cannonball", "dyb")
 SRP_LABELS = {"none": "no SRP", "cannonball": "cannonball SRP", "dyb": "DYB SRP"}
 
@@ -141,10 +143,13 @@ def fit(
         )
         dx, *_ = np.linalg.lstsq(H, residual, rcond=None)
         x = x + dx
-        if np.abs(dx[:3]).max() < CONVERGED_KM:
+        if np.all(np.abs(dx) < CONVERGED * steps):
             break
     else:
         raise RuntimeError(f"the {srp_model} fit did not converge")
+    # the residual at the converged state itself (H barely changes)
+    r, _ = propagate(x[:6], t_s, x[6:], srp_model, field, start, substeps=substeps)
+    residual = (r_obs - r[:, 0]).ravel()
     variance = residual @ residual / (len(residual) - n)
     covariance = variance * np.linalg.inv(H.T @ H)
     return Fit(
@@ -256,7 +261,7 @@ def build_summary(results: dict) -> str:
             )
     lines += [
         "",
-        "Fitted SRP [1e-9 km/s² at 1 AU, ± formal sigma] and post-fit RMS",
+        "Fitted SRP [1e-9 km/s² = µm/s² at 1 AU, ± formal sigma] and post-fit RMS",
         f"{'Satellite':24s} {'model':16s} {'D':>14s} {'Y':>14s} {'B':>14s} {'RMS':>8s}",
     ]
     for res in results.values():

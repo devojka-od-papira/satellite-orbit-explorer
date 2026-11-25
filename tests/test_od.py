@@ -65,6 +65,18 @@ def test_the_fit_recovers_a_known_orbit(e29_start):
     assert f.iterations <= 4
 
 
+def test_the_reported_rms_is_that_of_the_returned_state(results):
+    """Fit.rms_km is the post-fit RMS of Fit.state and Fit.srp_params, not of
+    the step before the last correction."""
+    res = results[QZS2]
+    f = res["fits"]["dyb"]
+    t, in_fit = res["t"][res["in_fit"]], res["in_fit"]
+    r_true, _ = od.observed(read_sp3(PRECISE_ORBITS), "J02", res["t"])
+    r, _ = od.propagate(f.state, t, f.srp_params, "dyb")
+    rms = np.sqrt(np.mean(np.sum((r[:, 0] - r_true[in_fit]) ** 2, axis=1)))
+    assert f.rms_km == pytest.approx(rms, rel=1e-9)
+
+
 def test_without_the_parameter_in_the_model_the_fit_says_so(e29_start):
     """The same observations fitted without SRP leave metres of residual."""
     t = np.arange(0.0, 12 * 3600 + 1, 900.0)
@@ -156,6 +168,12 @@ def test_readme_numbers_are_the_analysis(results):
         assert cells == [
             f"{pred_rms(results[n], key) * 1000:.0f} m" for n in (GALILEO, QZS2)
         ], label
+    flat = " ".join(text.split())
+    old = [pred_rms(results[n], "j2") for n in (GALILEO, QZS2)]
+    assert (
+        f"is {old[0]:.2f} km (GALILEO 29) and {old[1]:.2f} km (QZS-2)" in flat
+    )  # the footnote
+    assert f"is {old[0] * 1000:.0f} m and {old[1] * 1000:.0f} m over the same" in flat
     top = re.search(r"^\| Orbit determination: .*\|(.*)\|(.*)\|$", text, re.MULTILINE)
     assert [c.strip().strip("*") for c in top.groups()] == [
         f"{pred_rms(results[n], 'fit_cannonball'):.3f} km" for n in (GALILEO, QZS2)
