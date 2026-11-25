@@ -1,0 +1,27 @@
+{
+  "retrieved_utc": "2026-11-25T11:07:49Z",
+  "reference_start_utc": "2026-11-25T00:00:00+00:00",
+  "source": "https://celestrak.org/NORAD/elements/gp.php?GROUP=<group>&FORMAT=json",
+  "systems": {
+    "GPS": {
+      "group": "gps-ops",
+      "file": "gp_gps-ops_2026-11-25.json",
+      "satellites": 32,
+      "epochs_utc": [
+        "2026-11-23T12:32:14.953056Z",
+        "2026-11-25T04:39:04.034016Z"
+      ]
+    },
+    "Galileo": {
+      "group": "galileo",
+      "file": "gp_galileo_2026-11-25.json",
+      "satellites": 32,
+      "epochs_utc": [
+        "2026-11-23T03:05:20.301216Z",
+        "2026-11-25T03:09:30.886272Z"
+      ]
+    }
+  },
+  "note": "All satellites CelesTrak lists in each group, without health flags: a satellite in testing or set unusable still counts.",
+  "made_with": "python -m orbit_explorer.gnss fetch"
+}
