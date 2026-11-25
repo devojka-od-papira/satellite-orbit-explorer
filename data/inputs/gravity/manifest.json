@@ -1,0 +1,9 @@
+{
+  "file": "EGM2008_n12.gfc",
+  "model": "EGM2008 (Pavlis, Holmes, Kenyon & Factor 2012), fully normalised, tide free",
+  "source": "https://icgem.gfz-potsdam.de/getmodel/gfc/c50128797a9cb62e936337c890e4425f03f0461d7329b09a8cc8561504465340/EGM2008.gfc",
+  "retrieved_utc": "2026-11-25",
+  "kept": "coefficients up to degree and order 12 (the full model goes to 2190); values unchanged",
+  "made_with": "python -m orbit_explorer.gravity EGM2008.gfc --max-degree 12 -o data/inputs/gravity/EGM2008_n12.gfc",
+  "used_in": "src/orbit_explorer/gravity.py, src/orbit_explorer/od.py (degree 8)"
+}

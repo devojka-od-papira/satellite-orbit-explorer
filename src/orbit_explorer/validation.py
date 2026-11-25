@@ -320,8 +320,9 @@ def build_summary(results: dict[int, dict], frame_km: dict[int, float]) -> str:
             f"  {name:42s} {a:8.1e} km/s²  ~{ephemeris.drift_km(a):5.2f} km"
             for name, a in leftover_estimates()
         ),
-        "What is left (0.1-0.4 km RMS) is that size: likely mostly solar",
-        "radiation pressure, with the Earth's higher harmonics smaller.",
+        "What is left (0.1-0.4 km RMS) is that size: the gravity field beyond",
+        "J2 (more C22/S22 than J3) and solar radiation pressure.",
+        "od.py models both and fits the pressure (python -m orbit_explorer.od).",
         "",
     ]
     return "\n".join(lines)
@@ -342,10 +343,34 @@ def leftover_estimates() -> list[tuple[str, float]]:
             ephemeris.srp_acceleration_km_s2(GALILEO_AREA_TO_MASS_M2_KG),
         ),
         (
-            "J3 zonal harmonic",
+            "Gravity field beyond J2 (EGM2008 8x8)",
+            field_beyond_j2_km_s2(GALILEO_RADIUS_KM),
+        ),
+        (
+            "  of which the J3 zonal harmonic",
             ephemeris.zonal_acceleration_km_s2(3, ephemeris.J3, GALILEO_RADIUS_KM),
         ),
     ]
+
+
+def field_beyond_j2_km_s2(radius_km: float, step_deg: float = 5.0) -> float:
+    """Largest acceleration [km/s²] of every EGM2008 term but the point mass
+    and J2 (degree 8) over a sphere of that radius."""
+    from orbit_explorer import gravity
+
+    full = gravity.load_field()
+    C, S = full.C.copy(), full.S.copy()
+    C[0, 0] = C[2, 0] = 0.0
+    rest = gravity.GravityField("beyond J2", full.gm, full.radius_km, full.degree, C, S)
+    lat, lon = np.meshgrid(
+        np.radians(np.arange(-90 + step_deg, 90, step_deg)),
+        np.radians(np.arange(0, 360, step_deg)),
+    )
+    xyz = np.stack(
+        [np.cos(lat) * np.cos(lon), np.cos(lat) * np.sin(lon), np.sin(lat)], axis=-1
+    )
+    a = gravity.acceleration(radius_km * xyz.reshape(-1, 3), rest)
+    return float(np.linalg.norm(a, axis=1).max())
 
 
 # ---------- Figure ----------
