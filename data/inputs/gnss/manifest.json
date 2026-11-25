@@ -22,6 +22,45 @@
       ]
     }
   },
-  "note": "All satellites CelesTrak lists in each group, without health flags: a satellite in testing or set unusable still counts.",
+  "excluded": {
+    "Galileo": [
+      {
+        "name": "GSAT0201",
+        "sv": "E18",
+        "reason": "NOT USABLE, NAGU 2021008: GSAT0201 and GSAT0202 unavailable",
+        "source": "https://www.gsc-europa.eu/system-service-status/constellation-information",
+        "checked": "2026-11-25"
+      },
+      {
+        "name": "GSAT0202",
+        "sv": "E14",
+        "reason": "NOT USABLE, NAGU 2021008: GSAT0201 and GSAT0202 unavailable",
+        "source": "https://www.gsc-europa.eu/system-service-status/constellation-information",
+        "checked": "2026-11-25"
+      },
+      {
+        "name": "GSAT0204",
+        "sv": "E22",
+        "reason": "NOT USABLE, NAGU 2017045: removed from active service on 2017-12-08 for constellation management",
+        "source": "https://www.gsc-europa.eu/system-service-status/constellation-information",
+        "checked": "2026-11-25"
+      },
+      {
+        "name": "GSAT0209",
+        "sv": "E09",
+        "reason": "NOT USABLE, NAGU 2026048: unavailable from 2026-11-17 until further notice",
+        "source": "https://www.gsc-europa.eu/system-service-status/constellation-information",
+        "checked": "2026-11-25"
+      },
+      {
+        "name": "GSAT0210",
+        "sv": "E01",
+        "reason": "NOT USABLE, NAGU 2023048: removed from active service",
+        "source": "https://www.gsc-europa.eu/system-service-status/constellation-information",
+        "checked": "2026-11-25"
+      }
+    ]
+  },
+  "note": "CelesTrak lists the satellites in orbit; 'excluded' names those the operator has set unusable, with the source checked. GPS: the gps-ops group as CelesTrak lists it; its health (NANUs) was not checked.",
   "made_with": "python -m orbit_explorer.gnss fetch"
 }

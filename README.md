@@ -193,8 +193,10 @@ the southern sky. It stays above 10° in one pass of about 19 hours:
 
 ### 6. GNSS geometry: dilution of precision
 [`dop.py`](src/orbit_explorer/dop.py) widens the view from four satellites to
-the whole of GPS and Galileo: 32 + 32 satellites from one CelesTrak snapshot
-([`gnss.py`](src/orbit_explorer/gnss.py), pinned in `data/inputs/gnss/`).
+the whole of GPS and Galileo, from one CelesTrak snapshot
+([`gnss.py`](src/orbit_explorer/gnss.py), pinned in `data/inputs/gnss/`): 32
+GPS satellites and the 27 Galileo satellites that are usable. The other 5 are
+listed in orbit, but the operator has set them unusable.
 DOP says how the satellites' geometry in the sky scales a ranging error into
 a position error: from the unit lines of sight to the satellites in view,
 Q = (GᵀG)⁻¹ with rows G = [−u, 1], and PDOP = √(Q_EE + Q_NN + Q_UU). GPS and
@@ -204,19 +206,24 @@ do. Over Belgrade on 2026-11-25, with a 10° mask:
 | | Satellites in view | Mean PDOP | 95% | Mean HDOP | Mean VDOP |
 |---|---|---|---|---|---|
 | GPS | 7–12 | 1.80 | 2.31 | 0.98 | 1.51 |
-| Galileo | 6–14 | 1.87 | 2.45 | 1.01 | 1.57 |
-| GPS + Galileo | 13–23 | **1.20** | **1.41** | 0.66 | 1.01 |
+| Galileo | 6–12 | 2.14 | 2.71 | 1.14 | 1.80 |
+| GPS + Galileo | 13–21 | **1.26** | **1.47** | 0.69 | 1.06 |
 
-- **Two systems cut PDOP by a third** (1.80 → 1.20), and its worst moment
-  from 2.59 to 1.53. In the 95th-percentile map below, GPS alone ranges from
-  1.9 to 3.3 over the globe; with Galileo, 1.3 to 1.9 everywhere.
+- **Two systems cut PDOP by 30%** (1.80 → 1.26), and its worst moment from
+  2.59 to 1.58. In the 95th-percentile map below, GPS alone ranges from 1.9
+  to 3.3 over the globe; with Galileo, 1.3 to 2.0 everywhere.
+- **Which satellites count matters.** With the 5 unusable Galileo satellites
+  counted, Galileo's mean PDOP would be 1.87 instead of 2.14, and GPS +
+  Galileo's 1.20 instead of 1.26.
 - **Height is always the weak part.** VDOP is 1.5–1.8 × HDOP at all four
   stations: every satellite is above the horizon, so the vertical has no
   satellites below to balance it.
-- **GPS repeats its sky every sidereal day; Galileo doesn't.** A test
-  propagates every satellite 23 h 56 min ahead: each GPS satellite is back
-  within 0.5° of elevation, the PDOP within 0.01 (median), while Galileo's sky
-  repeats only every 10 days (17 orbits).
+- **GPS repeats its sky about every sidereal day; Galileo doesn't.** GPS
+  orbits twice a sidereal day, and J2 makes the ground track repeat a little
+  sooner: the test finds the best repeat at 23 h 55 m 55 s, 9 s short of the
+  sidereal day, at all four stations. Then every GPS satellite is back within
+  0.06° of elevation (0.11° after a full sidereal day). Galileo's sky repeats
+  only every 10 days (17 orbits).
 
 ![Satellites in view and PDOP over Belgrade](docs/images/dop.png)
 
@@ -236,9 +243,13 @@ How it is checked ([`tests/test_dop.py`](tests/test_dop.py)):
 - **Snapshot:** the look angles are `visibility.py`'s, two systems beat either
   one at every minute, and the values sit in the range GNSS practice gives.
 
-The snapshot lists every satellite in orbit, without health flags, so it
-includes satellites in testing. Among them are GSAT0201 and GSAT0202, which
-a 2014 launch left in an eccentric orbit (1.86 orbits a day instead of 1.70).
+Which satellites are usable comes from the operator, not from CelesTrak. The
+manifest's `excluded` list names each satellite left out, with its reason and
+source: for Galileo, the [GSC constellation status](https://www.gsc-europa.eu/system-service-status/constellation-information)
+and its NAGU notices. On 2026-11-25 that was GSAT0201, GSAT0202, GSAT0204,
+GSAT0209 and GSAT0210. GSAT0201 and GSAT0202 are the pair a 2014 launch left
+in an eccentric orbit (1.86 orbits a day instead of 1.70). GPS health (NANUs)
+is not checked: all 32 satellites of CelesTrak's operational group count.
 
 ### 7. 3D viewer
 A static CesiumJS page in `web/` that loads `orbits.czml`
@@ -350,7 +361,11 @@ the 6-hour refresh doesn't touch it. A new snapshot replaces it:
     python -m orbit_explorer.gnss summary
 
 Each download is checked before anything is written: at least 20 satellites,
-none twice, and mean motions of a GNSS orbit.
+none twice, and mean motions of a GNSS orbit. A new snapshot keeps the
+`excluded` list (each entry must still match exactly one satellite); its
+`checked` date says when the sources were last read. The data files are
+written first and the manifest is replaced atomically, so an interrupted
+fetch leaves the old snapshot usable.
 
 ### Element set archive
 Each refresh replaces the GP data, so every element set it downloads is also

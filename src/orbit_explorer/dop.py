@@ -38,7 +38,7 @@ from matplotlib.colors import LinearSegmentedColormap
 
 from orbit_explorer import style
 from orbit_explorer.frames import eci_to_ecef, geodetic_to_ecef, gmst_rad
-from orbit_explorer.gnss import GNSS_DIR, load_snapshot
+from orbit_explorer.gnss import GNSS_DIR, load_snapshot, usable
 from orbit_explorer.plots import load_world_map
 from orbit_explorer.sgp4_compare import propagate_sgp4
 from orbit_explorer.visibility import (
@@ -55,7 +55,10 @@ SPAN_S = 86400
 STEP_S = 60  # DOP changes over minutes: GNSS satellites cross the sky in hours
 MAP_STEP_S = 900  # the world map: every 15 minutes of the day
 MAP_GRID_DEG = 3.0
-SIDEREAL_DAY_S = 86164.0905  # GPS ground tracks repeat after one
+SIDEREAL_DAY_S = 86164.0905
+# GPS orbits twice a sidereal day, so its sky repeats after about one; J2
+# turns the orbit planes west, and the ground track repeats some 9 s sooner
+# (23 h 55 m 55 s in this snapshot), which tests/test_dop.py measures.
 BOTH = "GPS + Galileo"
 # Line colours: system hues not used for the four satellites' own colours,
 # except Galileo's orange (GALILEO 29 is a Galileo satellite); both together
@@ -65,7 +68,9 @@ PDOP_GOOD = 2.0  # a common threshold for good geometry
 
 
 def time_grid_s(step_s: float = STEP_S) -> np.ndarray:
-    return np.arange(0, SPAN_S + step_s, step_s, dtype=float)
+    """The day's epochs, 00:00 included and 24:00 not (it is the next day's
+    00:00), so every moment of the day counts once."""
+    return np.arange(0, SPAN_S, step_s, dtype=float)
 
 
 def ecef_positions(sats: list[dict], t_s: np.ndarray, start: datetime) -> np.ndarray:
@@ -213,17 +218,34 @@ def world_pdop(
 
 
 def load_positions(
-    folder: Path = GNSS_DIR, step_s: float = STEP_S
+    folder: Path = GNSS_DIR, step_s: float = STEP_S, all_listed: bool = False
 ) -> tuple[dict[str, np.ndarray], np.ndarray, datetime]:
-    systems, start = load_snapshot(folder)
+    """Positions of the usable satellites per system (``all_listed``: of
+    every satellite CelesTrak lists, the excluded ones too)."""
+    systems, start = load_snapshot(folder) if all_listed else usable(folder)[:2]
     t = time_grid_s(step_s)
     return {name: ecef_positions(s, t, start) for name, s in systems.items()}, t, start
 
 
 # ---------- Text ----------
 def build_summary(
-    station: Station, result: dict[str, DOP], start: datetime, counts: dict[str, int]
+    station: Station,
+    result: dict[str, DOP],
+    start: datetime,
+    counts: dict[str, int],
+    excluded: dict[str, list[dict]] | None = None,
+    all_listed: dict[str, DOP] | None = None,
 ) -> str:
+    """The table for the usable satellites; ``excluded`` (manifest entries)
+    and ``all_listed`` (DOP with them back in) say what leaving them out did."""
+    excluded = excluded or {}
+
+    def count(name: str, n: int) -> str:
+        out = len(excluded.get(name, []))
+        return f"{name} {n} satellites" + (
+            f" ({out} set unusable left out)" if out else ""
+        )
+
     lines = [
         f"DILUTION OF PRECISION AT {station.name.upper()}",
         f"Station: {station.coordinates}, {station.height_km * 1000:.0f} m",
@@ -231,9 +253,7 @@ def build_summary(
             f"Window: {start:%Y-%m-%d %H:%M} UTC + 24 h, every {STEP_S} s, "
             f"elevation mask {ELEVATION_MASK_DEG:.0f}°, positions from SGP4"
         ),
-        "Constellations: "
-        + ", ".join(f"{name} {n} satellites" for name, n in counts.items())
-        + " (CelesTrak, all listed, no health flags)",
+        "Constellations: " + ", ".join(count(n, k) for n, k in counts.items()),
         "",
         (
             f"{'':15s} {'in view':>13s} {'PDOP':>21s} {'HDOP':>6s} {'VDOP':>6s}"
@@ -252,6 +272,17 @@ def build_summary(
             f" {np.nanmax(d.pdop):6.2f}   {np.nanmean(d.hdop):5.2f}"
             f" {np.nanmean(d.vdop):5.2f} {good:8.0f}%"
         )
+    if all_listed and excluded:
+        lines += [
+            "",
+            "With the satellites set unusable back in, mean PDOP would be "
+            + ", ".join(
+                f"{name} {np.nanmean(d.pdop):.2f}"
+                for name, d in all_listed.items()
+                if np.nanmean(d.pdop) != np.nanmean(result[name].pdop)
+            )
+            + ".",
+        ]
     lines += [
         "",
         "PDOP: 3D position error per metre of ranging error (HDOP horizontal,",
@@ -367,7 +398,9 @@ def main(
     positions, t, start = load_positions(folder)
     result = station_dop(positions, station)
     counts = {name: len(pos) for name, pos in positions.items()}
-    summary = build_summary(station, result, start, counts)
+    _, _, excluded = usable(folder)
+    everything = station_dop(load_positions(folder, all_listed=True)[0], station)
+    summary = build_summary(station, result, start, counts, excluded, everything)
     print(summary)
     paths["summary"].write_text(summary)
     plot_station(paths["station"], station, result, t, start)

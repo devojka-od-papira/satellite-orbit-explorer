@@ -90,3 +90,80 @@ def test_committed_snapshot_epochs_are_near_its_day():
         for s in sats:
             epoch = datetime.fromisoformat(s["EPOCH"] + "+00:00")
             assert abs((epoch - start).total_seconds()) < 4 * 86400, s["OBJECT_NAME"]
+
+
+# ---------- Satellites set unusable ----------
+def test_unusable_satellites_are_left_out():
+    systems, _ = gnss.load_snapshot()
+    kept, _, excluded = gnss.usable()
+    names = {e["name"] for e in excluded["Galileo"]}
+    assert names == {"GSAT0201", "GSAT0202", "GSAT0204", "GSAT0209", "GSAT0210"}
+    assert len(kept["Galileo"]) == len(systems["Galileo"]) - 5
+    assert not {s["OBJECT_NAME"].split()[0] for s in kept["Galileo"]} & names
+    assert kept["GPS"] == systems["GPS"]
+    for entry in excluded["Galileo"]:  # each says why, where from and when
+        assert entry["reason"].startswith("NOT USABLE, NAGU ")
+        assert entry["source"].startswith("https://www.gsc-europa.eu/")
+        datetime.fromisoformat(entry["checked"])
+
+
+def test_a_new_snapshot_keeps_the_exclusions(tmp_path, downloads):
+    excluded = {
+        "Galileo": [
+            {
+                "name": "GSAT0204",
+                "sv": "E22",
+                "reason": "x",
+                "source": "y",
+                "checked": "2026-11-25",
+            }
+        ]
+    }
+    gnss.write_snapshot(
+        downloads, datetime(2026, 11, 25, tzinfo=UTC), tmp_path, excluded
+    )
+    gnss.write_snapshot(downloads, datetime(2026, 12, 2, tzinfo=UTC), tmp_path)
+    kept, _, kept_excluded = gnss.usable(tmp_path)
+    assert kept_excluded == excluded
+    assert len(kept["Galileo"]) == len(downloads["Galileo"]) - 1
+    assert "1 excluded" in gnss.summary(tmp_path)
+    assert "checked on 2026-11-25" in gnss.summary(tmp_path)
+
+
+def test_an_exclusion_must_name_one_satellite(tmp_path, downloads):
+    """A typo, or a satellite gone from the list, is caught."""
+    excluded = {
+        "Galileo": [
+            {
+                "name": "GSAT9999",
+                "sv": "E99",
+                "reason": "x",
+                "source": "y",
+                "checked": "2026-11-25",
+            }
+        ]
+    }
+    with pytest.raises(gnss.SnapshotError, match="GSAT9999 matches 0"):
+        gnss.write_snapshot(
+            downloads, datetime(2026, 11, 25, tzinfo=UTC), tmp_path, excluded
+        )
+    assert not tmp_path.exists() or not list(tmp_path.iterdir())
+
+
+def test_an_interrupted_write_leaves_the_old_snapshot(tmp_path, downloads, monkeypatch):
+    old_day = datetime(2026, 11, 25, 11, tzinfo=UTC)
+    gnss.write_snapshot(downloads, old_day, tmp_path)
+    real_replace = type(tmp_path).replace
+
+    def fail_on_manifest(self, target):
+        if self.name == "manifest.json.tmp":
+            raise OSError("disk full")
+        return real_replace(self, target)
+
+    monkeypatch.setattr(type(tmp_path), "replace", fail_on_manifest)
+    with pytest.raises(OSError, match="disk full"):
+        gnss.write_snapshot(downloads, old_day + timedelta(days=7), tmp_path)
+    monkeypatch.undo()
+    systems, start = gnss.load_snapshot(tmp_path)  # the old one, whole
+    assert start == datetime(2026, 11, 25, tzinfo=UTC)
+    assert systems == downloads

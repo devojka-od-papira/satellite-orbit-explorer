@@ -148,34 +148,47 @@ def test_lines_of_sight_match_visibility(snapshot):
     np.testing.assert_allclose(el[0], expected, atol=1e-9)
 
 
-def test_gps_geometry_repeats_after_a_sidereal_day(snapshot):
-    """GPS orbits twice per sidereal day, so each satellite is back in the
-    same place in the sky 23 h 56 min later, and so is the DOP. Galileo
-    (17 orbits in 10 days) is not: its sky repeats every 10 days."""
-    (
-        systems,
-        _,
-    ) = gnss.load_snapshot()
+def test_gps_sky_repeats_a_little_before_a_sidereal_day(snapshot):
+    """GPS orbits twice per sidereal day, so each satellite comes back to the
+    same place in the sky about 23 h 56 min later. J2 turns the orbit planes
+    west, so the ground track repeats some seconds sooner: the shift that
+    best brings the sky back lies 5-15 s short of the sidereal day, at every
+    station, and there every satellite is within 0.1° of elevation."""
     _, _, start = snapshot
+    systems, _, _ = gnss.usable()
+    gps = systems["GPS"]
     t = np.arange(0, 6 * 3600, 60.0)
+    today = dop.ecef_positions(gps, t, start)
+    shifts = np.arange(dop.SIDEREAL_DAY_S - 30, dop.SIDEREAL_DAY_S + 10, 1.0)
+    later = [dop.ecef_positions(gps, t + s, start) for s in shifts]
     for station in STATIONS:
-        for name, limit in (("GPS", 0.01), ("Galileo", None)):
-            sats = systems[name]
-            today = dop.ecef_positions(sats, t, start)
-            later = dop.ecef_positions(sats, t + dop.SIDEREAL_DAY_S, start)
-            args = (station.lat_deg, station.lon_deg, station.height_km)
-            (u1, e1), (u2, e2) = (
-                dop.lines_of_sight(today, *args),
-                dop.lines_of_sight(later, *args),
-            )
-            gap = np.median(
-                np.abs(dop.dop(u1, e1 >= 10).pdop - dop.dop(u2, e2 >= 10).pdop)
-            )
-            if limit:
-                assert np.max(np.abs(e1 - e2)) < 0.5, station.name  # degrees
-                assert gap < limit, f"{station.name} {name}: {gap:.4f}"
-            else:
-                assert gap > 0.05, f"{station.name} {name}: {gap:.4f}"
+        args = (station.lat_deg, station.lon_deg, station.height_km)
+        _, el = dop.lines_of_sight(today, *args)
+        gaps = [np.max(np.abs(dop.lines_of_sight(p, *args)[1] - el)) for p in later]
+        best = int(np.argmin(gaps))
+        short_s = dop.SIDEREAL_DAY_S - shifts[best]
+        assert 5 <= short_s <= 15, f"{station.name}: {short_s:.0f} s"
+        assert gaps[best] < 0.1, f"{station.name}: {gaps[best]:.3f}°"
+        sidereal = int(np.argmin(np.abs(shifts - dop.SIDEREAL_DAY_S)))
+        assert gaps[best] < gaps[sidereal]  # better than a whole sidereal day
+
+
+def test_galileo_sky_does_not_repeat_daily(snapshot):
+    """Galileo orbits 17 times in 10 days: after one sidereal day its sky,
+    and so its DOP, is a different one."""
+    _, _, start = snapshot
+    systems, _, _ = gnss.usable()
+    t = np.arange(0, 6 * 3600, 60.0)
+    today = dop.ecef_positions(systems["Galileo"], t, start)
+    later = dop.ecef_positions(systems["Galileo"], t + dop.SIDEREAL_DAY_S, start)
+    for station in STATIONS:
+        args = (station.lat_deg, station.lon_deg, station.height_km)
+        (u1, e1), (u2, e2) = (
+            dop.lines_of_sight(today, *args),
+            dop.lines_of_sight(later, *args),
+        )
+        gap = np.median(np.abs(dop.dop(u1, e1 >= 10).pdop - dop.dop(u2, e2 >= 10).pdop))
+        assert gap > 0.05, f"{station.name}: {gap:.4f}"
 
 
 def test_two_systems_beat_either_alone(at_stations):
