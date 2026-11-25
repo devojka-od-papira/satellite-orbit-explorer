@@ -44,14 +44,26 @@ def site_czml(site_dir):
     return json.loads((site_dir / "orbits.czml").read_text())
 
 
+@pytest.fixture(scope="module")
+def czml_passes(site_czml):
+    """Passes per station slug, from the same CZML the page loads."""
+    return {
+        p["id"][len("station-") :]: json.loads(p["properties"]["passes"])
+        for p in site_czml
+        if p["id"].startswith("station-")
+    }
+
+
 @pytest.fixture(scope="session")
 def site_url(site_dir):
     with serve(site_dir) as url:
         yield url
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def browser():
+    # Per module, not per session: the recorder (test_record.py) starts its own
+    # Playwright, which can't run while another sync Playwright is open.
     with sync_api.sync_playwright() as p:
         try:
             b = launch_chromium(p)
@@ -97,6 +109,11 @@ class Viewer:
         """Pause the clock at a UTC time and let the panel catch up."""
         self.js("iso => explorer.setTime(iso)", iso)
 
+    def wait_for_live_mode(self):
+        """Until the live mode has loaded (or given up); returns its state."""
+        self.page.wait_for_function("explorer.liveState !== 'loading'", timeout=60_000)
+        return self.js("explorer.liveState")
+
     def pick_station(self, name):
         self.page.click(f"#station-picker button:text-is('{name}')")
 
@@ -105,10 +122,15 @@ class Viewer:
 def open_viewer(browser, site_url):
     pages = []
 
-    def _open(fragment="", width=1400, height=900):
+    def _open(fragment="", width=1400, height=900, setup=None):
+        """fragment: e.g. "#tokyo" or "?now"; setup(page) runs before loading
+        (e.g. to block a request)."""
         page = browser.new_page(viewport={"width": width, "height": height})
         pages.append(page)
-        return Viewer(page).open(site_url + fragment)
+        viewer = Viewer(page)
+        if setup:
+            setup(page)
+        return viewer.open(site_url + fragment)
 
     yield _open
     for page in pages:

@@ -30,6 +30,7 @@ jobs:
           mkdir _site
           cp -R web/. _site/
           cp outputs/orbits.czml _site/
+          cp data/inputs/orbital_elements.json _site/gp.json  # for the live mode
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
