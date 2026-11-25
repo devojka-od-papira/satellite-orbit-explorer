@@ -6,8 +6,10 @@
 Orbit propagation in Python for four real navigation satellites (LEO, MEO,
 GEO and IGSO), from CelesTrak's public GP (General Perturbations) element
 sets, the ones SGP4 uses. It goes from Kepler's two-body model to a numerical
-propagator with Earth's oblateness, the Moon and the Sun, and validates every
-step against precise GNSS orbits.
+propagator with Earth's gravity field, the Moon and the Sun, validates every
+step against precise GNSS orbits, and ends with orbit determination: a fit
+that learns the solar radiation pressure from the precise orbit and predicts
+ahead.
 
 **[Open the 3D viewer](https://devojka-od-papira.github.io/satellite-orbit-explorer/)**:
 the satellites on a globe over one day, with Kepler and SGP4 side by side,
@@ -27,6 +29,7 @@ Distance from GFZ's precise orbits (SP3, accurate to centimetres), RMS over
 | Own propagator: J2 + Moon + Sun | SGP4's state at 00:00 | 0.86 km | 2.5 km |
 | Own propagator: J2 | the precise orbit at 00:00 | 1.5 km | 3.3 km |
 | Own propagator: J2 + Moon + Sun | the precise orbit at 00:00 | **0.14 km** | **0.36 km** |
+| Orbit determination: EGM2008 + Moon + Sun + SRP | fitted to 00–12 h; RMS of the 12–24 h prediction | **0.010 km** | **0.052 km** |
 
 - **From the same start as SGP4**, the full force model is in SGP4's league:
   a bit behind for GALILEO 29 and nearly twice as good for QZS-2. Both carry
@@ -35,8 +38,10 @@ Distance from GFZ's precise orbits (SP3, accurate to centimetres), RMS over
 - **From the precise orbit**, the same model drifts only 0.14 km in a day.
   The Moon and the Sun account for about 90% of the J2-only error. So a good
   starting state (orbit determination) matters more than the force model.
-- **What remains is about the size of solar radiation pressure.** This is an
-  estimate (about 0.4 km/day), not yet a model.
+- **Orbit determination closes most of the rest.** With the gravity field
+  beyond J2 and a fitted solar radiation pressure, a fit to the first 12
+  hours predicts the next 12 within 10 m RMS for GALILEO 29 and 52 m for
+  QZS-2 ([section 5](#5-orbit-determination-fitting-the-push-of-sunlight)).
 
 ![Models against the precise orbit](docs/images/validation.png)
 
@@ -46,6 +51,11 @@ Distance from GFZ's precise orbits (SP3, accurate to centimetres), RMS over
   - SGP4/SDP4.
   - A numerical RK4 propagator: point mass, J2, and Moon and Sun as third
     bodies. Batched over satellites.
+  - EGM2008 gravity field to degree 12 and solar radiation pressure
+    (cannonball and DYB, with the Earth's shadow).
+- **Orbit determination**
+  - Batch least squares for the state and SRP parameters, from precise
+    positions; scored on a prediction the fit never saw.
 - **Precise orbits**
   - An SP3-c/d reader and writer.
   - Degree-10 Lagrange interpolation: 3–8 mm when every other epoch is left out.
@@ -152,11 +162,11 @@ The table and figure are at the top.
   (the Sun from Meeus, the Moon from Montenbruck & Gill). The error falls about
   ten times. At Galileo's altitude the Moon pulls about 2.5 times as hard as the
   Sun (5.8e-9 vs 2.3e-9 km/s²).
-- **What is left is the size of solar radiation pressure.** This is an
-  estimate, not a model. A Galileo satellite has about 0.02 m² of sunlit area
-  per kg, so sunlight pushes it with about 1.2e-10 km/s². Unmodelled, that is
-  worth up to about 0.4 km in a day. The J3 harmonic is at most about
-  5e-11 km/s² (up to 0.17 km, mostly periodic).
+- **What is left is two forces of the same size.** A Galileo satellite has
+  about 0.02 m² of sunlit area per kg, so sunlight pushes it with about
+  1.2e-10 km/s², worth up to about 0.4 km in a day. The gravity field beyond
+  J2 pulls with up to 4.4e-10 km/s² at Galileo's radius, mostly C22/S22 (the
+  equator's slight ellipticity); J3 alone is only 5e-11. Section 5 models both.
 - **Frames and time.** SP3 positions are Earth-fixed (IGc20) and in GPS time.
   The comparison converts GPS time to UTC (18 s), rotates by sidereal time at
   UT1, and applies polar motion. It uses the IERS values for the day:
@@ -170,7 +180,59 @@ The table and figure are at the top.
 
       python -m orbit_explorer.sp3 GBM0MGXRAP_20263210000_01D_05M_ORB.SP3.gz --keep E29 J02 -o data/inputs/precise/GBM0MGXRAP_20263210000_01D_05M_ORB_E29_J02.sp3
 
-### 5. Visibility from a ground station
+### 5. Orbit determination: fitting the push of sunlight
+[`od.py`](src/orbit_explorer/od.py) does what an operations centre does with
+tracking data: it fits the orbit to observations and then predicts. The
+observations are the precise SP3 positions of 2026-11-17, every 5 minutes
+from 00:00 to 12:00. A batch least-squares fit (Gauss-Newton) estimates the
+state at 00:00 and the solar radiation pressure. The fitted orbit is then
+propagated to the end of the day and compared with the 12 hours the fit never
+saw.
+
+The force model grows by two pieces:
+- **Gravity field:** [`gravity.py`](src/orbit_explorer/gravity.py) evaluates
+  EGM2008 to degree and order 8 (Montenbruck & Gill's V/W recursions), in
+  the Earth-fixed frame. Degrees 9–12 would add a few centimetres a day.
+- **Solar radiation pressure:** [`srp.py`](src/orbit_explorer/srp.py) has a
+  cannonball model (one parameter, away from the Sun) and DYB, the constant
+  part of the ECOM model GNSS analysis centres use (three parameters in a
+  Sun-oriented frame). Both fade in the Earth's shadow (conical model), which
+  neither satellite enters on this day.
+
+RMS distance from the precise orbit over the predicted 12–24 h:
+
+| Run | GALILEO 29 (MEO) | QZS-2 (IGSO) |
+|---|---|---|
+| J2 + Moon + Sun from the precise state | 210 m | 502 m |
+| EGM2008 8×8 + Moon + Sun from the precise state | 120 m | 448 m |
+| Fitted to 00-12 h, no SRP | 120 m | 303 m |
+| Fitted to 00-12 h, cannonball SRP | **10 m** | **52 m** |
+| Fitted to 00-12 h, DYB SRP | 13 m | 49 m |
+
+- **Fitting the state alone doesn't help.** Without SRP in the model, the fit
+  matches the first half to 8–11 m but the prediction is no better than
+  starting on the precise state: the missing force is still missing.
+- **One SRP parameter cuts the prediction error 6–12 times.** The post-fit
+  RMS drops to 1.6 m (GALILEO 29) and 2.4 m (QZS-2).
+- **The fitted push is physical.** For GALILEO 29 it is 1.10e-10 km/s² away
+  from the Sun at 1 AU, against 1.2e-10 estimated from public area and mass.
+  QZS-2 gets 1.25e-10.
+- **More parameters, no better prediction.** DYB's Y and B terms come out
+  small (under 25% of D), and over a 12-hour arc they fit noise as much as
+  force: GALILEO 29's prediction gets slightly worse, QZS-2's slightly
+  better.
+- **The gravity field had to come first.** Fitting SRP with J2 only, the
+  estimate came out twice too large and GALILEO 29's prediction got *worse*
+  (155 m): the parameter was soaking up the missing C22/S22 pull.
+- **The fit is checked on itself:** observations made by the model with a
+  known SRP are recovered to 1e-4 of the parameter and 1 cm of position, from
+  a start 100 m and 1 cm/s off. The formal uncertainties in `od.txt` assume
+  independent residuals and are too small; the prediction error is the
+  honest measure.
+
+![Fitted to 00–12 h and predicted over 12–24 h](docs/images/od.png)
+
+### 6. Visibility from a ground station
 [`visibility.py`](src/orbit_explorer/visibility.py) turns SGP4 positions into
 azimuth, elevation and range for a station. It lists the passes above a 10°
 elevation mask, and how far Kepler shifts each rise and set. From Belgrade
@@ -191,7 +253,7 @@ the southern sky. It stays above 10° in one pass of about 19 hours:
 
 ![Sky plot from Tokyo](docs/images/visibility_tokyo_skyplot.png)
 
-### 6. GNSS geometry: dilution of precision
+### 7. GNSS geometry: dilution of precision
 [`dop.py`](src/orbit_explorer/dop.py) widens the view from four satellites to
 the whole of GPS and Galileo, from one CelesTrak snapshot
 ([`gnss.py`](src/orbit_explorer/gnss.py), pinned in `data/inputs/gnss/`): 32
@@ -251,7 +313,7 @@ GSAT0209 and GSAT0210. GSAT0201 and GSAT0202 are the pair a 2014 launch left
 in an eccentric orbit (1.86 orbits a day instead of 1.70). GPS health (NANUs)
 is not checked: all 32 satellites of CelesTrak's operational group count.
 
-### 7. 3D viewer
+### 8. 3D viewer
 A static CesiumJS page in `web/` that loads `orbits.czml`
 ([`czml.py`](src/orbit_explorer/czml.py)). It shows the satellites over the
 day, in the Earth-fixed or inertial frame, with Kepler and SGP4 side by side.
@@ -296,6 +358,7 @@ one-day view works as before.
     python -m orbit_explorer.sgp4_compare
     python -m orbit_explorer.j2
     python -m orbit_explorer.validation
+    python -m orbit_explorer.od            # fit 00-12 h, predict 12-24 h (about a minute)
     python -m orbit_explorer.visibility    # Belgrade
     python -m orbit_explorer.visibility --station tokyo    # or sydney, quito
     python -m orbit_explorer.visibility --name "Novi Sad" --lat 45.25 --lon 19.84 --height 80
@@ -350,6 +413,13 @@ figures and numbers in this README stay at their documented date.
   the previous refresh run, which may have downloaded without a commit.
 - **Local preview.** `DRY_RUN=1 .github/scripts/daily_refresh.sh` previews the
   PR, then puts the data and the archive back.
+
+### Gravity field
+`data/inputs/gravity/EGM2008_n12.gfc` holds EGM2008's coefficients up to
+degree 12, unchanged, from [ICGEM](https://icgem.gfz-potsdam.de/tom_longtime);
+`manifest.json` there says where and when. To make it from the full file:
+
+    python -m orbit_explorer.gravity EGM2008.gfc --max-degree 12 -o data/inputs/gravity/EGM2008_n12.gfc
 
 ### GNSS constellations
 `data/inputs/gnss/` holds one snapshot of the whole GPS (`gps-ops`) and

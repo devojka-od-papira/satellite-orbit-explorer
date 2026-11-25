@@ -104,21 +104,9 @@ def propagate(
     ``substeps`` RK4 steps are taken between consecutive grid points; at the
     5 s grid one step is already far below a metre per day (see the tests).
     """
-    r = np.array(r0, dtype=float)
-    v = np.array(v0, dtype=float)
-    r_out = np.empty((len(t_s), *r.shape))
-    v_out = np.empty((len(t_s), *v.shape))
-    if len(t_s) == 0:
-        return r_out, v_out
-    dt = np.diff(t_s)
-    if len(dt) and not np.allclose(dt, dt[0]):
-        raise ValueError("propagate needs a uniform time grid")
-    h = (dt[0] if len(dt) else 0.0) / substeps
-
-    n_steps = (len(t_s) - 1) * substeps
     if third_body_start is not None:
         # RK4 needs the bodies at every step and half step: compute them once
-        half = t_s[0] + 0.5 * h * np.arange(2 * n_steps + 1)
+        half = half_step_times(t_s, substeps)
         moon = ephemeris.moon_position(half, third_body_start)
         sun = ephemeris.sun_position(half, third_body_start)
 
@@ -130,6 +118,40 @@ def propagate(
             a = a + ephemeris.third_body_acceleration(x, s, ephemeris.MU_SUN_KM3_S2)
         return a
 
+    return rk4(r0, v0, t_s, acc, substeps)
+
+
+def half_step_times(t_s: np.ndarray, substeps: int = 1) -> np.ndarray:
+    """Every RK4 step's start, middle and end on the grid t_s, in order:
+    rk4() asks its acceleration for the time at index 2k, 2k+1, 2k+2 of step k."""
+    if len(t_s) < 2:
+        return np.asarray(t_s, dtype=float)[:1]
+    h = (t_s[1] - t_s[0]) / substeps
+    n_steps = (len(t_s) - 1) * substeps
+    return t_s[0] + 0.5 * h * np.arange(2 * n_steps + 1)
+
+
+def rk4(
+    r0: np.ndarray,
+    v0: np.ndarray,
+    t_s: np.ndarray,
+    acc,
+    substeps: int = 1,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Classic fourth-order Runge-Kutta on the uniform grid t_s, for any force
+    model: ``acc(r, half_index)`` gives the acceleration [km/s²] at positions
+    r at the time half_step_times(t_s, substeps)[half_index]. Shapes as in
+    propagate()."""
+    r = np.array(r0, dtype=float)
+    v = np.array(v0, dtype=float)
+    r_out = np.empty((len(t_s), *r.shape))
+    v_out = np.empty((len(t_s), *v.shape))
+    if len(t_s) == 0:
+        return r_out, v_out
+    dt = np.diff(t_s)
+    if len(dt) and not np.allclose(dt, dt[0]):
+        raise ValueError("propagate needs a uniform time grid")
+    h = (dt[0] if len(dt) else 0.0) / substeps
     r_out[0], v_out[0] = r, v
     step = 0
     for k in range(1, len(t_s)):

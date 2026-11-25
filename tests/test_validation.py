@@ -188,17 +188,21 @@ def test_the_moon_and_the_sun_are_most_of_j2s_error(results, norad):
 
 
 @pytest.mark.parametrize("norad", list(SP3_IDS), ids=lambda n: SP3_IDS[n])
-def test_what_is_left_is_the_size_of_radiation_pressure(results, norad):
+def test_what_is_left_is_the_size_of_radiation_pressure_and_the_field(results, norad):
     """The remaining error is the same order as the estimated drift from solar
-    radiation pressure (within a factor of 10 either way), not much bigger."""
+    radiation pressure (within a factor of 10 either way), and below the
+    bound for the gravity field beyond J2, which outweighs J3 alone. (The
+    field's pull turns with the Earth, so 0.5 a t² overstates it most.)"""
     from orbit_explorer.ephemeris import drift_km
     from orbit_explorer.validation import leftover_estimates
 
-    srp_km = drift_km(
-        dict(leftover_estimates())["Solar radiation pressure (A/m 0.02 m²/kg)"]
-    )
+    estimates = dict(leftover_estimates())
     left = np.sqrt(np.mean(results[norad]["j2_moon_sun_precise"]["total"] ** 2))
+    srp_km = drift_km(estimates["Solar radiation pressure (A/m 0.02 m²/kg)"])
     assert srp_km / 10 < left < srp_km * 10
+    assert left < drift_km(estimates["Gravity field beyond J2 (EGM2008 8x8)"])
+    beyond = estimates["Gravity field beyond J2 (EGM2008 8x8)"]
+    assert beyond > 5 * estimates["  of which the J3 zonal harmonic"]
 
 
 @pytest.mark.parametrize("norad", list(SP3_IDS), ids=lambda n: SP3_IDS[n])
