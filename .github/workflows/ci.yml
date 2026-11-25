@@ -43,7 +43,9 @@ jobs:
           python -m orbit_explorer.validation
           python -m orbit_explorer.visibility
           python -m orbit_explorer.archive summary
-          for f in orbit_report.txt ground_tracks.png speeds.png geo_vs_igso.png orbits.kml orbits.czml sgp4_comparison.txt sgp4_differences.png j2_comparison.txt j2_differences.png j2_node_drift.png validation.txt validation.png visibility.txt visibility_elevation.png visibility_skyplot.png; do
+          python -m orbit_explorer.gnss summary
+          python -m orbit_explorer.dop
+          for f in orbit_report.txt ground_tracks.png speeds.png geo_vs_igso.png orbits.kml orbits.czml sgp4_comparison.txt sgp4_differences.png j2_comparison.txt j2_differences.png j2_node_drift.png validation.txt validation.png visibility.txt visibility_elevation.png visibility_skyplot.png dop.txt dop.png dop_world.png; do
             test -s "outputs/$f" || { echo "Missing or empty: outputs/$f"; exit 1; }
           done
       - uses: actions/upload-artifact@v4

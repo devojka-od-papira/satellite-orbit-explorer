@@ -61,6 +61,10 @@ Distance from GFZ's precise orbits (SP3, accurate to centimetres), RMS over
 - **Ground stations**
   - Look angles and passes above an elevation mask, with sky plots.
   - Four stations: Belgrade, Tokyo, Sydney, Quito.
+- **GNSS geometry**
+  - DOP (GDOP, PDOP, HDOP, VDOP) for all of GPS and Galileo, alone and
+    together, with one clock offset per system.
+  - Over the day at a station, and a world map.
 - **Engineering**
   - Tests that check the physics, not only the numbers: energy conservation,
     the exact circular orbit, J2 secular theory, tidal geometry.
@@ -187,7 +191,67 @@ the southern sky. It stays above 10° in one pass of about 19 hours:
 
 ![Sky plot from Tokyo](docs/images/visibility_tokyo_skyplot.png)
 
-### 6. 3D viewer
+### 6. GNSS geometry: dilution of precision
+[`dop.py`](src/orbit_explorer/dop.py) widens the view from four satellites to
+the whole of GPS and Galileo, from one CelesTrak snapshot
+([`gnss.py`](src/orbit_explorer/gnss.py), pinned in `data/inputs/gnss/`): 32
+GPS satellites and the 27 Galileo satellites that are usable. The other 5 are
+listed in orbit, but the operator has set them unusable.
+DOP says how the satellites' geometry in the sky scales a ranging error into
+a position error: from the unit lines of sight to the satellites in view,
+Q = (GᵀG)⁻¹ with rows G = [−u, 1], and PDOP = √(Q_EE + Q_NN + Q_UU). GPS and
+Galileo together solve one clock offset per system, as multi-GNSS receivers
+do. Over Belgrade on 2026-11-25, with a 10° mask:
+
+| | Satellites in view | Mean PDOP | 95% | Mean HDOP | Mean VDOP |
+|---|---|---|---|---|---|
+| GPS | 7–12 | 1.80 | 2.31 | 0.98 | 1.51 |
+| Galileo | 6–12 | 2.14 | 2.71 | 1.14 | 1.80 |
+| GPS + Galileo | 13–21 | **1.26** | **1.47** | 0.69 | 1.06 |
+
+- **Two systems cut PDOP by 30%** (1.80 → 1.26), and its worst moment from
+  2.59 to 1.58. In the 95th-percentile map below, GPS alone ranges from 1.9
+  to 3.3 over the globe; with Galileo, 1.3 to 2.0 everywhere.
+- **Which satellites count matters.** With the 5 unusable Galileo satellites
+  counted, Galileo's mean PDOP would be 1.87 instead of 2.14, and GPS +
+  Galileo's 1.20 instead of 1.26.
+- **Height is always the weak part.** VDOP is 1.5–1.8 × HDOP at all four
+  stations: every satellite is above the horizon, so the vertical has no
+  satellites below to balance it.
+- **GPS repeats its sky about every sidereal day; Galileo doesn't.** GPS
+  orbits twice a sidereal day, and J2 makes the ground track repeat a little
+  sooner: the test finds the best repeat at 23 h 55 m 55 s, 9 s short of the
+  sidereal day, at all four stations. Then every GPS satellite is back within
+  0.06° of elevation (0.11° after a full sidereal day). Galileo's sky repeats
+  only every 10 days (17 orbits).
+
+![Satellites in view and PDOP over Belgrade](docs/images/dop.png)
+
+![PDOP's 95th percentile over the day, GPS alone and GPS + Galileo](docs/images/dop_world.png)
+
+How it is checked ([`tests/test_dop.py`](tests/test_dop.py)):
+- **Closed form:** one satellite at the zenith and three 120° apart at
+  elevation e give HDOP² = 4 / (3 cos² e) and VDOP² = 4 / (3 (1 − sin e)²),
+  matched to 1e-12.
+- **Meaning:** least-squares positions from pseudoranges with unit noise
+  scatter by PDOP (40,000 trials, within 2%).
+- **Properties:**
+  - another satellite never raises DOP;
+  - satellites all at one elevation can't be solved (height and clock blur);
+  - a second system with a single satellite adds nothing, since that
+    satellite only pays for the second system's clock offset.
+- **Snapshot:** the look angles are `visibility.py`'s, two systems beat either
+  one at every minute, and the values sit in the range GNSS practice gives.
+
+Which satellites are usable comes from the operator, not from CelesTrak. The
+manifest's `excluded` list names each satellite left out, with its reason and
+source: for Galileo, the [GSC constellation status](https://www.gsc-europa.eu/system-service-status/constellation-information)
+and its NAGU notices. On 2026-11-25 that was GSAT0201, GSAT0202, GSAT0204,
+GSAT0209 and GSAT0210. GSAT0201 and GSAT0202 are the pair a 2014 launch left
+in an eccentric orbit (1.86 orbits a day instead of 1.70). GPS health (NANUs)
+is not checked: all 32 satellites of CelesTrak's operational group count.
+
+### 7. 3D viewer
 A static CesiumJS page in `web/` that loads `orbits.czml`
 ([`czml.py`](src/orbit_explorer/czml.py)). It shows the satellites over the
 day, in the Earth-fixed or inertial frame, with Kepler and SGP4 side by side.
@@ -235,6 +299,8 @@ one-day view works as before.
     python -m orbit_explorer.visibility    # Belgrade
     python -m orbit_explorer.visibility --station tokyo    # or sydney, quito
     python -m orbit_explorer.visibility --name "Novi Sad" --lat 45.25 --lon 19.84 --height 80
+    python -m orbit_explorer.dop           # GPS + Galileo DOP: Belgrade and a world map
+    python -m orbit_explorer.dop --station quito
 
 To preview the 3D viewer locally (GitHub Actions publishes it to GitHub Pages
 on every push to `main`):
@@ -284,6 +350,22 @@ figures and numbers in this README stay at their documented date.
   the previous refresh run, which may have downloaded without a commit.
 - **Local preview.** `DRY_RUN=1 .github/scripts/daily_refresh.sh` previews the
   PR, then puts the data and the archive back.
+
+### GNSS constellations
+`data/inputs/gnss/` holds one snapshot of the whole GPS (`gps-ops`) and
+Galileo (`galileo`) groups from CelesTrak, for the DOP analysis, with a
+manifest of when it was retrieved. Like the precise orbits, it is pinned:
+the 6-hour refresh doesn't touch it. A new snapshot replaces it:
+
+    python -m orbit_explorer.gnss fetch      # refuses within 2 hours of the last
+    python -m orbit_explorer.gnss summary
+
+Each download is checked before anything is written: at least 20 satellites,
+none twice, and mean motions of a GNSS orbit. A new snapshot keeps the
+`excluded` list (each entry must still match exactly one satellite); its
+`checked` date says when the sources were last read. The data files are
+written first and the manifest is replaced atomically, so an interrupted
+fetch leaves the old snapshot usable.
 
 ### Element set archive
 Each refresh replaces the GP data, so every element set it downloads is also
