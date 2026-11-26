@@ -11,6 +11,21 @@ step against precise GNSS orbits, and ends with orbit determination: a fit
 that learns the solar radiation pressure from the precise orbit and predicts
 ahead.
 
+**At a glance**
+- **Orbit determination:** batch least squares with EGM2008 gravity and
+  solar radiation pressure. Fitted to 12 hours of precise orbit, it predicts
+  the next 12 within 10 m RMS (GALILEO 29) and 52 m (QZS-2)
+  ([section 5](#5-orbit-determination-fitting-the-push-of-sunlight)).
+- **Validated against the truth:** every model is compared with GFZ's precise
+  GNSS orbits (SP3), through TEME → ITRF with UT1 and polar motion from IERS
+  ([section 4](#4-validation-against-precise-orbits)).
+- **GNSS geometry:** DOP for all of GPS and Galileo; using both systems cuts
+  PDOP over Belgrade by 30% ([section 7](#7-gnss-geometry-dilution-of-precision)).
+- **Engineering:** about 400 tests that check the physics (closed forms,
+  conservation laws, recovery of known solutions), CI on Python 3.11–3.14,
+  browser tests of the 3D viewer, and an automated data refresh through pull
+  requests.
+
 **[Open the 3D viewer](https://devojka-od-papira.github.io/satellite-orbit-explorer/)**:
 the satellites on a globe over one day, with Kepler and SGP4 side by side,
 and the passes over a ground station. **[Or see them live](https://devojka-od-papira.github.io/satellite-orbit-explorer/?now)**:
@@ -87,6 +102,8 @@ Distance from GFZ's precise orbits (SP3, accurate to centimetres), RMS over
   - CI on Python 3.11–3.14, plus browser tests of the 3D viewer.
   - Data refresh every 6 hours through pull requests, with an archive of every
     element set downloaded.
+  - Supply chain: CI with a read-only token, `pip-audit` against known
+    vulnerabilities, and Dependabot for package and Actions updates.
 
 ## Step by step
 ### 1. Kepler's two-body model
@@ -354,6 +371,27 @@ If satellite.js or `gp.json` doesn't load, the *Now* button stays off and the
 one-day view works as before.
 
 ![Belgrade ground station in the 3D viewer during a PULSAR-0 pass](docs/images/viewer_station.jpg)
+
+## Limitations and future work
+What the results above do not cover, on purpose:
+- **One day, in sunlight.** The orbit determination uses 2026-11-17, when
+  neither satellite enters the Earth's shadow. The shadow model is checked
+  only by unit tests; a day in eclipse season would test it on real data.
+- **Positions, not measurements.** The fit uses precise SP3 positions as
+  observations. Real orbit determination starts from ranges, pseudoranges or
+  angles, with station positions, clocks and the troposphere in the model.
+- **A small force model.** Gravity to degree 8, the Moon and the Sun as point
+  masses, and constant SRP (cannonball or the constant part of ECOM). Left
+  out: solid Earth and ocean tides, relativity, Earth albedo, the periodic
+  ECOM terms and satellite-specific box-wing models.
+- **Optimistic uncertainties.** The formal covariance assumes independent
+  residuals; the error of the prediction is the honest measure.
+- **Satellite health.** Galileo satellites are excluded from DOP by the
+  operator's status; GPS NANUs are not read.
+
+Next steps, if the project continues: a day with eclipses, orbit
+determination from simulated pseudoranges with a receiver clock, and
+manoeuvre detection in the [element set archive](#element-set-archive).
 
 ## Run it
     pip install -e .
