@@ -6,6 +6,9 @@ on:
   pull_request:
   workflow_dispatch: # started by the data refresh, whose PRs don't trigger CI
 
+permissions:
+  contents: read # CI only reads the code
+
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -15,6 +18,19 @@ jobs:
         with:
           python-version: "3.13"
       - uses: pre-commit/action@v3.0.1
+
+  audit:
+    # Fails if an installed dependency has a known vulnerability (PyPI advisory
+    # database). The project itself is installed editable and not on PyPI.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -e ".[dev,viewer]" pip-audit
+      - run: pip-audit --skip-editable
 
   test:
     runs-on: ubuntu-latest
@@ -46,16 +62,6 @@ jobs:
           python -m orbit_explorer.gnss summary
           python -m orbit_explorer.dop
           for f in orbit_report.txt ground_tracks.png speeds.png geo_vs_igso.png orbits.kml orbits.czml sgp4_comparison.txt sgp4_differences.png j2_comparison.txt j2_differences.png j2_node_drift.png validation.txt validation.png visibility.txt visibility_elevation.png visibility_skyplot.png dop.txt dop.png dop_world.png; do
-            test -s "outputs/$f" || { echo "Missing or empty: outputs/$f"; exit 1; }
-          done
-      - name: Smoke test the orbit determination
-        # about a minute, and its tests already run it on every version
-        if: matrix.python-version == '3.13'
-        env:
-          MPLBACKEND: Agg
-        run: |
-          python -m orbit_explorer.od
-          for f in od.txt od.png; do
             test -s "outputs/$f" || { echo "Missing or empty: outputs/$f"; exit 1; }
           done
       - uses: actions/upload-artifact@v4
